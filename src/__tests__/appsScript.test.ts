@@ -712,3 +712,12 @@ describe('Apps Script: admin panel', () => {
     expect(list[0]).toMatchObject({ total: 63, sent: 63, status: 'Yuborildi' });
   });
 });
+
+describe('Apps Script: reytingda qarzdor biletlari', () => {
+  it('qarzdorning jami biletlari ko\'rsatiladi, holati "qarzi bor"', () => {
+    const env = createEnv();
+    const botir = env.api({ action: 'leaderboard' }).data.entries.find((e: any) => e.maskedName === 'Botir Moyxona');
+    expect(botir.tickets).toBe(1); // $1200, qarz 150
+    expect(botir.isDebtCleared).toBe(false);
+  });
+});

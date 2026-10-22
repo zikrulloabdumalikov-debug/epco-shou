@@ -613,7 +613,7 @@ function buildLeaderboardEntry(c, rank, myPhoneKey, props) {
     maskedName: displayName(c.name),
     segment: "station",
     region: c.region,
-    tickets: c.activeTickets,
+    tickets: c.tickets, // qarzdorda ham jami biletlar ko'rinadi; holati isDebtCleared bilan ("qarzi bor")
     isDebtCleared: c.isDebtCleared,
     growthPercent: 0,
     isMe: Boolean(myPhoneKey) && c.phoneKey === myPhoneKey
