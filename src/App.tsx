@@ -213,29 +213,17 @@ export default function App() {
     }
   };
 
-  // Login handler
-  const handleLogin = async (phone: string, consent: boolean, token?: string) => {
+  // Login handler (token LoginModal'da Telegram kodi tasdiqlangandan keyin olinadi)
+  const handleLogin = async (_phone: string, consent: boolean, token?: string) => {
     if (token) {
       apiService.setToken(token);
     }
     setIsLoginOpen(false);
     setNeedPhoneLink(null);
     setLoading(true);
-    try {
-      await loadData();
-    } catch (e) {
-      console.warn('loadData failed on login, using loginDirect fallback:', e);
-      try {
-        const fallbackData = await apiService.loginDirect(phone, token);
-        setUser(fallbackData.user);
-        setStats(fallbackData.stats);
-        setConfig(fallbackData.config);
-      } catch (fErr) {
-        console.error('Login fallback error:', fErr);
-      } finally {
-        setLoading(false);
-      }
-    }
+    // Reytingda ism faqat mijoz roziligi bilan ko'rsatiladi (server standarti — yashirin)
+    await dataService.updateConsent(consent);
+    await loadData();
   };
 
   // Logout handler

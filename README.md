@@ -50,22 +50,26 @@ Quyidagi **Script Properties** parametrlarini qo'shing:
 | Xususiyat (Property) | Qiymat misoli | Tavsif |
 |---|---|---|
 | `BOT_TOKEN` | `7123456789:AAH...` | Telegram @BotFather dan olingan bot tokeni |
-| `WEBHOOK_SECRET` | `epco_sec_2026_xyz` | Telegram webhook himoyasi uchun maxfiy so'z |
-| `ADMIN_CHAT_ID` | `123456789` | Buyurtmalar va xatolar yuboriladigan admin Telegram ID |
-| `APP_URL` | `https://epco.uz` | Frontend PWA ilovasining to'liq veb manzili |
+| `WEBHOOK_SECRET` | `epco_9f3kQ2xLm8Rt4vZp` | **Majburiy.** Kamida 16 belgili tasodifiy so'z (harf, raqam, `_`, `-`). Busiz bot xabarlari qabul qilinmaydi |
+| `BOT_USERNAME` | `epcoaksiya_bot` | Bot username (`@` siz) |
+| `ADMIN_CHAT_ID` | `123456789` | Buyurtmalar yuboriladigan admin Telegram ID |
+| `WEBAPP_URL` | `https://script.google.com/macros/s/.../exec` | Ixtiyoriy. `setTelegramWebhook` Web App manzilini o'zi topa olmasa |
 
 ### 2.3. Funksiyalarni Ishga Tushirish Ketma-ketligi (Run)
-Apps Script muharririda yuqoridagi funksiyalar ro'yxatidan quyidagilarni **qat'iy tartibda** bir martadan ishga tushiring:
+Avval **2.4** bo'yicha Deploy qiling, keyin Apps Script muharririda quyidagilarni **qat'iy tartibda** bir martadan ishga tushiring:
 
 1. **`setupSheets`** ni tanlang va **Run (Ishga tushirish)** tugmasini bosing:
    - Google hisobingizga ruxsat berish oynasi chiqadi (`Review permissions` → Hisobni tanlang → `Advanced` → `Go to EPCO Shou (unsafe)` → `Allow`).
-   - Bu funksiya barcha kerakli varaqlarni (`Ustalar`, `Mijoz_Profil`, `Sessiyalar`, `Biletlar`, `Sozlamalar`, `Zakazlar`, `Goliblar`, `Katalog`, `Xatolar`) tekshiradi va avtomatik yaratib, formatlaydi.
+   - Bu funksiya `Ustalar` varag'i mavjudligini tekshiradi.
 2. **`installTriggers`** ni tanlang va **Run** tugmasini bosing:
-   - Jadvalga to'lov kiritilganda yoki o'zgarish bo'lganda avtomatik qayta hisoblash triggerlarini o'rnatadi.
+   - Muddati o'tgan sessiyalarni har kuni tozalaydigan trigger o'rnatadi.
 3. **`setTelegramWebhook`** ni tanlang va **Run** tugmasini bosing:
-   - Botga kelgan xabarlar va kontakt ulashish so'rovlarini to'g'ridan-to'g'ri Web App'ga ulaydi.
+   - Botni Web App'ga `?secret=WEBHOOK_SECRET` bilan ulaydi. Log'da `"ok":true` chiqishi kerak.
+   - `WEBHOOK_SECRET` ni o'zgartirsangiz, bu funksiyani qayta ishga tushiring.
 
 ### 2.4. Web App Sifatida Deploy Qilish
+> Kodni yangilaganda manzil o'zgarmasligi uchun: **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**. Yangi deployment yaratsangiz, manzil o'zgaradi va GitHub'dagi `VITE_API_URL` ni ham yangilash kerak bo'ladi.
+
 1. Yuqori o'ng burchakdagi ko'k **Deploy (Joylashtirish) → New deployment** tugmasini bosing.
 2. Chapdagi tishli g'ildirakdan **Web app** ni tanlang.
 3. Quyidagi sozlamalarni aniq belgilang:
@@ -99,7 +103,7 @@ Loyihaning ildiz papkasidagi `.env` faylida quyidagi parametrlarni o'rnating:
 VITE_API_URL=https://script.google.com/macros/s/AKfycb.../exec
 
 # Telegram bot username
-VITE_BOT_USERNAME=@epco_aksiyabot
+VITE_BOT_USERNAME=@epcoaksiya_bot
 
 # Demo rejim (production da albatta false bo'lishi kerak!)
 VITE_DEMO=false
@@ -130,6 +134,11 @@ npm run build
 
 ## 6. Xavfsizlik va Maxfiylik Kafolatlari
 
-1. **Maxfiylik:** Reytingda hech qachon boshqa mijozlarning aniq ismlari yoki to'lov summalari ko'rsatilmaydi — faqat hudud va birinchi harf (`03 Andijon · H***`).
-2. **Haqiqiylik:** Barcha biletlar raqamli seriya raqami va QR kodga ega bo'lib, ochiq `/verify/:raqam` havolasi orqali tekshirilishi mumkin.
-3. **Avtorizatsiya:** Telegram WebApp HMAC-SHA256 imzosi yoki 6 xonali Telegram OTP kodi orqali amalga oshiriladi.
+1. **Maxfiylik:** Reytingda ism standart holatda yashirin — faqat hudud raqami va birinchi harf (`03 · H***`). To'liq ism faqat mijoz o'zi rozilik bersa ko'rinadi.
+2. **Avtorizatsiya:** faqat ikki yo'l bilan:
+   - Telegram Mini App ichida — `initData` HMAC-SHA256 imzosi bot tokeni bilan tekshiriladi (24 soat amal qiladi).
+   - Brauzer/PWA'da — telefon raqami → Telegram botga 6 xonali kod (5 daqiqa, 5 ta urinish, 1 daqiqada bir marta).
+   Kod faqat shu raqamni **o'z akkauntidan** «Kontaktni ulashish» tugmasi bilan tasdiqlagan Telegram chatga yuboriladi.
+3. **Bot webhook:** `WEBHOOK_SECRET` siz kelgan so'rovlar e'tiborsiz qoldiriladi.
+4. **Sessiyalar:** tasodifiy 256-bitli token, 30 kun amal qiladi; chiqishda o'chiriladi.
+5. **Testlar:** `src/__tests__/appsScript.test.ts` `Code.gs` ni Google xizmatlari mock'lari bilan ishga tushirib, yuqoridagilarni tekshiradi (`npm test`).

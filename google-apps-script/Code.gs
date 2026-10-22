@@ -2,9 +2,19 @@
  * EPCO – KATTA ROZIG'ISH SHOU (Production Backend)
  * Google Apps Script Web App & Telegram Bot
  *
- * Versiya: 2.1.0 (Single Sheet Mode - Faqat "Ustalar" varag'i bilan ishlaydi)
+ * Versiya: 2.2.0 (Single Sheet Mode - Faqat "Ustalar" varag'i bilan ishlaydi)
  * Hech qanday qo'shimcha varaqlar talab qilinmaydi!
+ *
+ * 2.2.0 xavfsizlik: kirish faqat Telegram botdagi 6 xonali kod yoki imzosi
+ * (HMAC) tekshirilgan Telegram Mini App orqali; webhook WEBHOOK_SECRET bilan
+ * himoyalangan; reytingda ismlar standart holatda yashirin.
  */
+
+var SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // Sessiya 30 kun amal qiladi
+var OTP_TTL_SECONDS = 300;                      // Kod 5 daqiqa amal qiladi
+var OTP_RESEND_SECONDS = 60;                    // Kodni qayta so'rash oralig'i
+var OTP_MAX_ATTEMPTS = 5;                       // Bitta kod uchun urinishlar soni
+var TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. STANDART SOZLAMALAR VA KONSTANTALAR
@@ -91,6 +101,7 @@ function getConfig() {
     if (props.BOT_USERNAME) config.BOT_USERNAME = props.BOT_USERNAME;
     if (props.WEBHOOK_SECRET) config.WEBHOOK_SECRET = props.WEBHOOK_SECRET;
     if (props.ADMIN_CHAT_ID) config.ADMIN_CHAT_ID = props.ADMIN_CHAT_ID;
+    if (props.WEBAPP_URL) config.WEBAPP_URL = props.WEBAPP_URL;
   } catch (e) {
     Logger.log("Sozlamalarni o'qishda xatolik: " + e.message);
   }
@@ -111,10 +122,6 @@ function doGet(e) {
       message: "EPCO Shou Backend muvaffaqiyatli ishlamoqda"
     });
   }
-  if (action === "checkPhone") {
-    var phone = (e && e.parameter && e.parameter.phone) ? e.parameter.phone : "";
-    return createJsonResponse(true, handleCheckPhone(phone));
-  }
   return createJsonResponse(false, null, { code: "BAD_REQUEST", message: "Noma'lum GET amali" });
 }
 
@@ -132,6 +139,14 @@ function doPost(e) {
 
     // 1. Telegram Bot Webhook (Telegram update yuborganda)
     if (data.update_id || data.message || data.callback_query) {
+      // Webhook manzilidagi ?secret=... faqat Telegram'ga ma'lum (setTelegramWebhook).
+      // Busiz har kim soxta "kontakt" yuborib, begona raqamni o'z chatiga ulab olardi.
+      var webhookSecret = getConfig().WEBHOOK_SECRET;
+      var givenSecret = (e && e.parameter && e.parameter.secret) ? String(e.parameter.secret) : "";
+      if (!webhookSecret || !safeEqual(givenSecret, String(webhookSecret))) {
+        Logger.log("Webhook rad etildi: WEBHOOK_SECRET mos kelmadi yoki o'rnatilmagan");
+        return ContentService.createTextOutput("OK");
+      }
       return handleTelegramWebhook(data);
     }
 
@@ -141,16 +156,7 @@ function doPost(e) {
     var responseData = null;
 
     switch (action) {
-      // Parolsiz to'g'ridan-to'g'ri raqam tekshirish va kirish
-      case "auth.checkPhone":
-        responseData = handleCheckPhone(data.phone);
-        break;
-
-      case "auth.loginDirect":
-        responseData = handleLoginDirect(data.phone);
-        break;
-
-      // Autentifikatsiya (eski usullar ham zaxirada qoladi)
+      // Autentifikatsiya: faqat Telegram Mini App (HMAC) yoki Telegram botdagi kod orqali
       case "auth.telegram":
         responseData = handleTelegramAuth(data.initData);
         break;
@@ -161,6 +167,11 @@ function doPost(e) {
 
       case "auth.verifyCode":
         responseData = handleVerifyCode(data.phone, data.code);
+        break;
+
+      case "auth.logout":
+        deleteSession(token);
+        responseData = { loggedOut: true };
         break;
 
       // Foydalanuvchi ma'lumotlari
@@ -227,7 +238,7 @@ function doPost(e) {
 
   } catch (err) {
     Logger.log("doPost xatolik: " + err.toString());
-    return createJsonResponse(false, null, { code: "EXECUTION_ERROR", message: err.toString() });
+    return createJsonResponse(false, null, { code: "EXECUTION_ERROR", message: (err && err.message) || String(err) });
   } finally {
     try { lock.releaseLock(); } catch (lErr) {}
   }
@@ -519,9 +530,10 @@ function handleGetClient(phoneKey, token) {
     }
   }
 
-  // Rozilik holati (PropertiesService da saqlanadi)
+  // Rozilik holati (PropertiesService da saqlanadi). Mijoz o'zi rozilik
+  // bermaguncha ismi reytingda yashirin ("03 Andijon · H***").
   var props = PropertiesService.getScriptProperties();
-  var consent = props.getProperty("consent_" + phoneKey) !== "false"; // Default true
+  var consent = props.getProperty("consent_" + phoneKey) === "true";
 
   // Ehtimollik P(t) = Gipergeometrik yoki (activeTickets / T) * 100
   var T = dataObj.totalActiveTickets;
@@ -638,7 +650,7 @@ function handleGetLeaderboard(scope, targetRegion) {
 
   for (var i = 0; i < list.length; i++) {
     var c = list[i];
-    var consent = props.getProperty("consent_" + c.phoneKey) !== "false";
+    var consent = props.getProperty("consent_" + c.phoneKey) === "true";
     entries.push({
       rank: i + 1,
       maskedName: maskClientName(c.name, c.region, consent),
@@ -750,129 +762,124 @@ function handleCreateOrder(phoneKey, items) {
 // 6. AUTENTIFIKATSIYA VA TOKENLAR (PropertiesService & CacheService)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Kriptografik tasodifiy token (Utilities.getUuid SecureRandom'dan foydalanadi)
+ */
 function generateSessionToken(phoneKey) {
-  var raw = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Math.random() + "_" + Date.now() + "_" + phoneKey));
-  var token = "epco_tok_" + raw.replace(/[^a-zA-Z0-9]/g, "").substring(0, 32);
+  var token = "epco_tok_" + (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, "");
+  var value = phoneKey + "|" + (Date.now() + SESSION_TTL_MS);
 
-  // Keshga va ScriptProperties ga saqlash
-  var cache = CacheService.getScriptCache();
-  cache.put("sess_" + token, phoneKey, 21600); // 6 soat
-
-  var props = PropertiesService.getScriptProperties();
-  props.setProperty("tok_" + token, phoneKey);
+  CacheService.getScriptCache().put("sess2_" + token, value, 21600); // 6 soat
+  PropertiesService.getScriptProperties().setProperty("tok_" + token, value);
 
   return token;
 }
 
 function getPhoneFromToken(token) {
-  if (!token) return null;
+  if (!token || typeof token !== "string" || token.indexOf("epco_tok_") !== 0) return null;
 
   var cache = CacheService.getScriptCache();
-  var cached = cache.get("sess_" + token);
-  if (cached) return cached;
-
-  var props = PropertiesService.getScriptProperties();
-  var fromProps = props.getProperty("tok_" + token);
-  if (fromProps) {
-    cache.put("sess_" + token, fromProps, 21600);
-    return fromProps;
+  var value = cache.get("sess2_" + token);
+  if (!value) {
+    value = PropertiesService.getScriptProperties().getProperty("tok_" + token);
+    if (!value) return null;
+    cache.put("sess2_" + token, value, 21600);
   }
-  return null;
+
+  // Format: "telefon|muddat". 2.1.0 dagi muddatsiz tokenlar parolsiz kirish orqali
+  // berilgan bo'lishi mumkin — ular bekor qilinadi.
+  var parts = String(value).split("|");
+  if (parts.length !== 2 || Number(parts[1]) < Date.now()) {
+    deleteSession(token);
+    return null;
+  }
+  return parts[0];
+}
+
+function deleteSession(token) {
+  if (!token || typeof token !== "string") return;
+  CacheService.getScriptCache().remove("sess2_" + token);
+  PropertiesService.getScriptProperties().deleteProperty("tok_" + token);
+}
+
+function generateOtpCode() {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid());
+  var n = 0;
+  for (var i = 0; i < 4; i++) {
+    n = n * 256 + ((bytes[i] + 256) % 256);
+  }
+  return String(100000 + (n % 900000));
 }
 
 /**
- * Parolsiz telefon raqamini bazadan tekshirish
+ * Vaqt bo'yicha sizdirmaydigan satr solishtirish
  */
-function handleCheckPhone(phone) {
-  var phoneKey = normalizePhoneKey(phone);
-  if (!phoneKey) {
-    return {
-      found: false,
-      message: "Telefon raqami noto'g'ri",
-      supportPhone: DEFAULTS.SUPPORT_PHONE
-    };
+function safeEqual(a, b) {
+  a = String(a);
+  b = String(b);
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
-
-  var dataObj = loadAndAggregateMasters();
-  var master = dataObj.clientsMap[phoneKey];
-
-  if (!master) {
-    return {
-      found: false,
-      phoneKey: phoneKey,
-      message: "Bunday mijoz bazada topilmadi",
-      supportPhone: DEFAULTS.SUPPORT_PHONE
-    };
-  }
-
-  var token = generateSessionToken(phoneKey);
-  return {
-    found: true,
-    clientName: master.name,
-    region: master.region,
-    phoneKey: phoneKey,
-    phoneFormatted: master.phoneFormatted,
-    token: token
-  };
+  return diff === 0;
 }
 
-/**
- * Mijoz tasdiqlagandan so'ng to'g'ridan-to'g'ri profilga kirish
- */
-function handleLoginDirect(phone) {
-  var phoneKey = normalizePhoneKey(phone);
-  if (!phoneKey) {
-    throw new Error("Telefon raqami noto'g'ri");
+function bytesToHex(bytes) {
+  var hex = "";
+  for (var i = 0; i < bytes.length; i++) {
+    var h = ((bytes[i] + 256) % 256).toString(16);
+    hex += h.length === 1 ? "0" + h : h;
   }
-  var dataObj = loadAndAggregateMasters();
-  var master = dataObj.clientsMap[phoneKey];
-  if (!master) {
-    throw new Error("Bunday mijoz bazada topilmadi");
-  }
-  var token = generateSessionToken(phoneKey);
-  var clientData = handleGetClient(phoneKey, token);
-  return {
-    token: token,
-    user: clientData.user,
-    stats: clientData.stats,
-    config: clientData.config
-  };
+  return hex;
+}
+
+function getBotUrl() {
+  var botUser = (getConfig().BOT_USERNAME || "epcoaksiya_bot").replace("@", "");
+  return "https://t.me/" + botUser;
 }
 
 /**
  * 6 xonali tasdiqlash kodini yuborish
  */
 function handleRequestCode(phone) {
-  var config = getConfig();
   var phoneKey = normalizePhoneKey(phone);
   if (!phoneKey) {
     return { status: "INVALID_PHONE", message: "Telefon raqami noto'g'ri" };
   }
 
-  // 6 xonali tasodifiy kod
-  var code = ("000000" + Math.floor(Math.random() * 900000 + 100000)).slice(-6);
-
-  var cache = CacheService.getScriptCache();
-  cache.put("otp_" + phoneKey, code, 300); // 5 daqiqa amal qiladi
-
-  var props = PropertiesService.getScriptProperties();
-  var chatId = props.getProperty("tg_chat_" + phoneKey);
-
-  // Agar mijoz hali botga kirmagan bo'lsa
-  if (!chatId) {
-    var botUser = (config.BOT_USERNAME || "epcoaksiya_bot").replace("@", "");
+  if (!loadAndAggregateMasters().clientsMap[phoneKey]) {
     return {
-      status: "NEED_PHONE_LINK",
-      message: "Telefon raqamingiz hali botga ulanmagan. Iltimos, Telegram botimizga kirib kontaktingizni ulashing.",
-      botUrl: "https://t.me/" + botUser
+      status: "NOT_FOUND",
+      message: "Bunday mijoz bazada topilmadi",
+      supportPhone: DEFAULTS.SUPPORT_PHONE
     };
   }
 
-  // Telegram orqali kodni yuborish
-  var sendRes = sendTelegramMessage(chatId, "🔐 EPCO Shou tizimiga kirish kodi: *" + code + "*\n\nKodni hech kimga bermang! Amal qilish muddati: 5 daqiqa.");
-  if (!sendRes) {
+  // Kod faqat shu raqam egasi Telegram orqali tasdiqlagan chatga yuboriladi
+  var chatId = PropertiesService.getScriptProperties().getProperty("tg_chat_" + phoneKey);
+  if (!chatId) {
+    return {
+      status: "NEED_PHONE_LINK",
+      message: "Telefon raqamingiz hali botga ulanmagan. Telegram botimizga kirib, «Kontaktni ulashish» tugmasini bosing.",
+      botUrl: getBotUrl()
+    };
+  }
+
+  var cache = CacheService.getScriptCache();
+  if (cache.get("otp_cd_" + phoneKey)) {
+    return { status: "TOO_SOON", message: "Kod yaqinda yuborildi. Telegram botni tekshiring yoki 1 daqiqadan keyin qayta so'rang." };
+  }
+
+  var code = generateOtpCode();
+  var sent = sendTelegramMessage(chatId, "🔐 EPCO Shou tizimiga kirish kodi: *" + code + "*\n\nKodni hech kimga bermang! Amal qilish muddati: 5 daqiqa.");
+  if (!sent) {
     return { status: "SEND_FAILED", message: "Telegram bot orqali kod yuborib bo'lmadi" };
   }
+
+  cache.put("otp_" + phoneKey, code, OTP_TTL_SECONDS);
+  cache.remove("otp_try_" + phoneKey);
+  cache.put("otp_cd_" + phoneKey, "1", OTP_RESEND_SECONDS);
 
   return { status: "CODE_SENT", message: "Tasdiqlash kodi Telegram botingizga yuborildi" };
 }
@@ -888,13 +895,24 @@ function handleVerifyCode(phone, code) {
 
   var cache = CacheService.getScriptCache();
   var validCode = cache.get("otp_" + phoneKey);
+  if (!validCode) {
+    throw new Error("Tasdiqlash kodi muddati o'tgan. Yangi kod so'rang.");
+  }
 
-  // Kodni tekshirish
-  if (!validCode || String(validCode).trim() !== String(code).trim()) {
-    throw new Error("Tasdiqlash kodi noto'g'ri yoki muddati o'tgan");
+  // Taxmin qilib topishning oldini olish: bitta kodga ko'pi bilan OTP_MAX_ATTEMPTS urinish
+  var attempts = Number(cache.get("otp_try_" + phoneKey)) || 0;
+  if (attempts >= OTP_MAX_ATTEMPTS) {
+    cache.remove("otp_" + phoneKey);
+    throw new Error("Urinishlar soni tugadi. Yangi kod so'rang.");
+  }
+
+  if (!safeEqual(String(validCode).trim(), String(code).trim())) {
+    cache.put("otp_try_" + phoneKey, String(attempts + 1), OTP_TTL_SECONDS);
+    throw new Error("Tasdiqlash kodi noto'g'ri");
   }
 
   cache.remove("otp_" + phoneKey);
+  cache.remove("otp_try_" + phoneKey);
   var token = generateSessionToken(phoneKey);
   var clientData = handleGetClient(phoneKey, token);
 
@@ -914,20 +932,16 @@ function handleTelegramAuth(initData) {
     throw new Error("InitData topilmadi");
   }
 
-  // Telegram initData dan foydalanuvchi ma'lumotlarini ajratish
-  var userId = null;
-  var params = initData.split("&");
-  for (var i = 0; i < params.length; i++) {
-    var pair = params[i].split("=");
-    if (decodeURIComponent(pair[0]) === "user") {
-      try {
-        var userJson = JSON.parse(decodeURIComponent(pair[1]));
-        userId = String(userJson.id);
-      } catch (e) {}
-    }
+  var fields = verifyTelegramInitData(String(initData), getConfig().BOT_TOKEN);
+  if (!fields) {
+    throw new Error("Telegram ma'lumotlari tasdiqlanmadi");
   }
 
-  if (!userId) {
+  var userId = null;
+  try {
+    userId = String(JSON.parse(fields.user).id);
+  } catch (e) {}
+  if (!userId || userId === "undefined") {
     throw new Error("Telegram foydalanuvchi ID topilmadi");
   }
 
@@ -936,11 +950,10 @@ function handleTelegramAuth(initData) {
   var phoneKey = props.getProperty("tg_phone_" + userId);
 
   if (!phoneKey) {
-    var botUser = (getConfig().BOT_USERNAME || "epcoaksiya_bot").replace("@", "");
     return {
       status: "NEED_PHONE_LINK",
       message: "Kontaktingiz hali botga ulanmagan. Botga kirib kontaktingizni ulashing.",
-      botUrl: "https://t.me/" + botUser
+      botUrl: getBotUrl()
     };
   }
 
@@ -953,6 +966,57 @@ function handleTelegramAuth(initData) {
     stats: clientData.stats,
     config: clientData.config
   };
+}
+
+/**
+ * Telegram Mini App initData imzosini tekshirish:
+ * https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+ * secret = HMAC_SHA256(key="WebAppData", msg=BOT_TOKEN)
+ * hash   = hex(HMAC_SHA256(key=secret, msg=data_check_string))
+ * To'g'ri bo'lsa maydonlar obyektini, aks holda null qaytaradi.
+ */
+function verifyTelegramInitData(initData, botToken) {
+  if (!initData || !botToken) return null;
+
+  var fields = {};
+  var hash = "";
+  var pairs = initData.split("&");
+  for (var i = 0; i < pairs.length; i++) {
+    var idx = pairs[i].indexOf("=");
+    if (idx < 0) continue;
+    var key, value;
+    try {
+      key = decodeURIComponent(pairs[i].substring(0, idx).replace(/\+/g, " "));
+      value = decodeURIComponent(pairs[i].substring(idx + 1).replace(/\+/g, " "));
+    } catch (e) {
+      return null;
+    }
+    if (key === "hash") {
+      hash = value.toLowerCase();
+    } else {
+      fields[key] = value;
+    }
+  }
+  if (!hash) return null;
+
+  var secret = Utilities.computeHmacSha256Signature(String(botToken), "WebAppData");
+  var keys = Object.keys(fields).sort();
+
+  function hashFor(keyList) {
+    var dataCheckString = keyList.map(function(k) { return k + "=" + fields[k]; }).join("\n");
+    var bytes = Utilities.newBlob("").setDataFromString(dataCheckString, "UTF-8").getBytes();
+    return bytesToHex(Utilities.computeHmacSha256Signature(bytes, secret));
+  }
+
+  // Yangi Telegram versiyalari "signature" maydonini ham qo'shadi — ikkala variant ham bot tokenisiz soxtalashtirib bo'lmaydi
+  var valid = safeEqual(hashFor(keys), hash) ||
+    (fields.signature !== undefined && safeEqual(hashFor(keys.filter(function(k) { return k !== "signature"; })), hash));
+  if (!valid) return null;
+
+  var authDate = Number(fields.auth_date);
+  if (!authDate || (Date.now() / 1000 - authDate) > TELEGRAM_AUTH_MAX_AGE_SECONDS) return null;
+
+  return fields;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -970,12 +1034,19 @@ function handleTelegramWebhook(update) {
 
   // 1. Kontakt ulashilganda
   if (msg.contact && msg.contact.phone_number) {
+    // Faqat o'z raqamini "Kontaktni ulashish" tugmasi orqali yuborgan foydalanuvchi qabul qilinadi.
+    // Aks holda istalgan odam telefon kitobidagi begona kontaktni yuborib, uning hisobiga kirardi.
+    var isOwnContact = msg.from && msg.contact.user_id &&
+      String(msg.contact.user_id) === String(msg.from.id) &&
+      msg.chat && msg.chat.type === "private";
+    if (!isOwnContact) {
+      sendTelegramMessage(chatId, "⚠️ Iltimos, faqat o'zingizning raqamingizni pastdagi «📲 Kontaktni ulashish» tugmasi orqali yuboring.");
+      return ContentService.createTextOutput("OK");
+    }
+
     var phoneKey = normalizePhoneKey(msg.contact.phone_number);
     if (phoneKey) {
-      var props = PropertiesService.getScriptProperties();
-      // ChatId <-> Phone bog'lash
-      props.setProperty("tg_chat_" + phoneKey, String(chatId));
-      props.setProperty("tg_phone_" + String(msg.from.id), phoneKey);
+      linkTelegramPhone(String(msg.from.id), String(chatId), phoneKey);
 
       sendTelegramMessage(chatId, "✅ Rahmat! Raqamingiz (" + formatPhoneUz(phoneKey) + ") muvaffaqiyatli bog'landi.\n\nEndi EPCO Shou ilovasiga bemalol kirishingiz mumkin!");
       return ContentService.createTextOutput("OK");
@@ -991,6 +1062,27 @@ function handleTelegramWebhook(update) {
   return ContentService.createTextOutput("OK");
 }
 
+/**
+ * Telefon <-> Telegram bog'lanishi. Eski bog'lanishlar tozalanadi, aks holda
+ * raqamini almashtirgan odam yoki raqamning oldingi egasi kodlarni olishda davom etardi.
+ */
+function linkTelegramPhone(userId, chatId, phoneKey) {
+  var props = PropertiesService.getScriptProperties();
+
+  var prevPhone = props.getProperty("tg_phone_" + userId);
+  if (prevPhone && prevPhone !== phoneKey && props.getProperty("tg_chat_" + prevPhone) === chatId) {
+    props.deleteProperty("tg_chat_" + prevPhone);
+  }
+
+  var prevChat = props.getProperty("tg_chat_" + phoneKey);
+  if (prevChat && prevChat !== chatId) {
+    props.deleteProperty("tg_phone_" + prevChat); // shaxsiy chatda chat.id === user.id
+  }
+
+  props.setProperty("tg_chat_" + phoneKey, chatId);
+  props.setProperty("tg_phone_" + userId, phoneKey);
+}
+
 function sendTelegramMessage(chatId, text) {
   var config = getConfig();
   if (!config.BOT_TOKEN) return false;
@@ -1001,12 +1093,16 @@ function sendTelegramMessage(chatId, text) {
       text: text,
       parse_mode: "Markdown"
     };
-    UrlFetchApp.fetch(url, {
+    var response = UrlFetchApp.fetch(url, {
       method: "post",
       contentType: "application/json",
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
+    if (response.getResponseCode() !== 200) {
+      Logger.log("sendTelegramMessage javobi: " + response.getResponseCode() + " " + response.getContentText());
+      return false;
+    }
     return true;
   } catch (e) {
     Logger.log("sendTelegramMessage xatolik: " + e.message);
@@ -1068,7 +1164,8 @@ function setupSheets() {
 }
 
 /**
- * Telegram Webhook ulash
+ * Telegram Webhook ulash. Web App manziliga ?secret=WEBHOOK_SECRET qo'shiladi —
+ * doPost faqat shu sir bilan kelgan Telegram xabarlarini qabul qiladi.
  */
 function setTelegramWebhook() {
   var config = getConfig();
@@ -1076,8 +1173,49 @@ function setTelegramWebhook() {
     Logger.log("BOT_TOKEN o'rnatilmagan! Script Properties ga BOT_TOKEN ni kiriting.");
     return;
   }
-  var webAppUrl = ScriptApp.getService().getUrl();
-  var url = "https://api.telegram.org/bot" + config.BOT_TOKEN + "/setWebhook?url=" + encodeURIComponent(webAppUrl);
+  if (!config.WEBHOOK_SECRET || !/^[A-Za-z0-9_-]{16,}$/.test(config.WEBHOOK_SECRET)) {
+    Logger.log("WEBHOOK_SECRET o'rnatilmagan yoki juda qisqa! Script Properties ga kamida 16 belgili (harf, raqam, _ yoki -) maxfiy so'z kiriting.");
+    return;
+  }
+  // ScriptApp.getService().getUrl() ba'zan /dev manzilini qaytaradi — kerak bo'lsa WEBAPP_URL bilan aniq bering
+  var webAppUrl = config.WEBAPP_URL || ScriptApp.getService().getUrl();
+  if (!webAppUrl || !/\/exec$/.test(webAppUrl)) {
+    Logger.log("Web App manzili topilmadi yoki /exec bilan tugamaydi: " + webAppUrl + ". Avval Deploy qiling yoki Script Properties ga WEBAPP_URL kiriting.");
+    return;
+  }
+  var hookUrl = webAppUrl + "?secret=" + encodeURIComponent(config.WEBHOOK_SECRET);
+  var url = "https://api.telegram.org/bot" + config.BOT_TOKEN + "/setWebhook?url=" + encodeURIComponent(hookUrl);
   var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  Logger.log("Webhook manzili: " + webAppUrl + "?secret=***");
   Logger.log("Webhook javobi: " + response.getContentText());
+}
+
+/**
+ * Muddati o'tgan va eski (2.1.0) sessiyalarni o'chiradi. installTriggers uni har kuni ishga tushiradi.
+ */
+function cleanupSessions() {
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
+  var now = Date.now();
+  var removed = 0;
+  Object.keys(all).forEach(function(key) {
+    if (key.indexOf("tok_") !== 0) return;
+    var parts = String(all[key]).split("|");
+    if (parts.length !== 2 || Number(parts[1]) < now) {
+      props.deleteProperty(key);
+      removed++;
+    }
+  });
+  Logger.log("O'chirilgan sessiyalar: " + removed);
+}
+
+function installTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === "cleanupSessions") {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  ScriptApp.newTrigger("cleanupSessions").timeBased().everyDays(1).atHour(4).create();
+  cleanupSessions();
+  Logger.log("Kunlik cleanupSessions triggeri o'rnatildi.");
 }

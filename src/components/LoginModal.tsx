@@ -13,6 +13,8 @@ interface LoginModalProps {
   onClose?: () => void;
 }
 
+const DEFAULT_BOT_URL = `https://t.me/${String((import.meta as any).env?.VITE_BOT_USERNAME || 'epcoaksiya_bot').replace('@', '')}`;
+
 export const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   language,
@@ -21,20 +23,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onClose,
 }) => {
   const t = translations[language];
-  const [phoneNumber, setPhoneNumber] = useState('+998 (90) 556-90-60');
-  const [consent, setConsent] = useState(true);
+  const [phoneNumber, setPhoneNumber] = useState('+998');
+  const [consent, setConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [botUrl, setBotUrl] = useState(DEFAULT_BOT_URL);
 
-  // Yangi parolsiz oqim bosqichlari: 'input' | 'confirm' | 'not_found'
-  const [step, setStep] = useState<'input' | 'confirm' | 'not_found'>('input');
-  const [foundClient, setFoundClient] = useState<{
-    clientName: string;
-    region: string;
-    phoneKey: string;
-    phoneFormatted: string;
-    token?: string;
-  } | null>(null);
+  // Kirish bosqichlari: telefon -> Telegram botdan kelgan 6 xonali kod
+  // 'link' — raqam hali botga ulanmagan, 'not_found' — jadvalda yo'q
+  const [step, setStep] = useState<'input' | 'code' | 'link' | 'not_found'>('input');
 
   if (!isOpen) return null;
 
@@ -56,11 +55,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (step !== 'input') {
       setStep('input');
       setErrorMessage(null);
+      setInfoMessage(null);
     }
   };
 
-  // 1-Qadam: Raqamni bazadan tekshirish (OTP siz)
-  const handleCheckPhone = async () => {
+  // 1-Qadam: Telegram bot orqali kod so'rash
+  const handleRequestCode = async () => {
     const cleanDigits = phoneNumber.replace(/\D/g, '');
     if (cleanDigits.length < 12) {
       setErrorMessage('Telefon raqamini to\'liq kiriting (+998 XX XXX-XX-XX).');
@@ -69,23 +69,31 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     setLoading(true);
     setErrorMessage(null);
+    setInfoMessage(null);
     triggerHaptic(25);
 
     try {
-      const res = await apiService.checkPhone(phoneNumber);
-      if (res.found && res.clientName) {
-        setFoundClient({
-          clientName: res.clientName,
-          region: res.region || '01 Tashkent',
-          phoneKey: res.phoneKey || cleanDigits.slice(-9),
-          phoneFormatted: res.phoneFormatted || phoneNumber,
-          token: res.token
-        });
-        setStep('confirm');
+      const res = await apiService.requestCode(phoneNumber);
+      const status = res.data?.status;
+
+      if (!res.success || !status) {
+        const isNetwork = res.error?.code === 'NETWORK_ERROR' || res.error?.code === 'NO_ENDPOINT';
+        setErrorMessage(isNetwork
+          ? 'Serverga ulanib bo\'lmadi. Internetni tekshirib, qayta urining.'
+          : res.error?.message || 'Kod yuborib bo\'lmadi. Iltimos qayta urining.');
+      } else if (status === 'CODE_SENT' || status === 'TOO_SOON') {
+        setInfoMessage(res.data?.message || 'Tasdiqlash kodi Telegram botingizga yuborildi.');
+        setCode('');
+        setStep('code');
         triggerHaptic([30, 40]);
-      } else {
+      } else if (status === 'NEED_PHONE_LINK') {
+        setBotUrl(res.data?.botUrl || DEFAULT_BOT_URL);
+        setStep('link');
+      } else if (status === 'NOT_FOUND') {
         setStep('not_found');
         triggerHaptic(50);
+      } else {
+        setErrorMessage(res.data?.message || 'Kod yuborib bo\'lmadi. Iltimos qayta urining.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Tarmoq xatosi. Iltimos qayta urining.');
@@ -94,19 +102,37 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // 2-Qadam: "Ha, bu men" tasdiqlanganda to'g'ridan-to'g'ri profilga kirish
-  const handleConfirmLogin = async () => {
-    if (!foundClient) return;
+  // 2-Qadam: kodni tekshirish va kirish
+  const handleVerifyCode = async () => {
+    if (code.length !== 6) return;
     setLoading(true);
+    setErrorMessage(null);
     triggerHaptic(35);
-    playTicketChime();
 
     try {
-      await onLogin(foundClient.phoneFormatted, consent, foundClient.token);
+      const res = await apiService.verifyCode(phoneNumber, code);
+      if (res.success && res.data?.token) {
+        playTicketChime();
+        setStep('input');
+        setCode('');
+        setInfoMessage(null);
+        await onLogin(phoneNumber, consent, res.data.token);
+      } else {
+        setErrorMessage(res.error?.message || 'Tasdiqlash kodi noto\'g\'ri.');
+        triggerHaptic(50);
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Kirishda xatolik yuz berdi.');
+    } finally {
       setLoading(false);
     }
+  };
+
+  const backToInput = () => {
+    setStep('input');
+    setCode('');
+    setErrorMessage(null);
+    setInfoMessage(null);
   };
 
   return (
@@ -123,26 +149,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </button>
           )}
           <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-400/20 border border-amber-400 flex items-center justify-center text-2xl shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-            {step === 'confirm' ? '✅' : step === 'not_found' ? '⚠️' : '📱'}
+            {step === 'code' ? '🔐' : step === 'link' ? '🤖' : step === 'not_found' ? '⚠️' : '📱'}
           </div>
           <h3 className={`font-black text-white ${isLargeText ? 'text-2xl' : 'text-xl'}`}>
-            {step === 'confirm'
-              ? 'Mijoz Tasdiqlandi'
+            {step === 'code'
+              ? 'Kodni Kiriting'
+              : step === 'link'
+              ? 'Botga Ulaning'
               : step === 'not_found'
               ? 'Mijoz Topilmadi'
               : 'Tizimga Kirish'}
           </h3>
           <p className="text-xs text-slate-300">
-            {step === 'confirm'
-              ? 'Profilingizni tasdiqlang va akkauntingizga kiring'
+            {step === 'code'
+              ? 'Telegram botimiz yuborgan 6 xonali kodni kiriting'
+              : step === 'link'
+              ? 'Kod olish uchun raqamingizni Telegram botga bir marta ulang'
               : 'Telefon raqamingizni kiriting'}
           </p>
         </div>
 
-        {/* Error message */}
+        {/* Error / info message */}
         {errorMessage && (
           <div className="p-3 bg-rose-950/70 border border-rose-500/50 rounded-xl text-rose-200 text-xs font-medium leading-relaxed text-center">
             {errorMessage}
+          </div>
+        )}
+        {infoMessage && !errorMessage && (
+          <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-emerald-200 text-xs font-medium leading-relaxed text-center">
+            {infoMessage}
           </div>
         )}
 
@@ -162,7 +197,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 className="w-full min-h-[48px] px-4 rounded-xl bg-slate-950/90 border border-amber-400/50 text-white font-mono text-lg font-bold tracking-wide focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-inner"
               />
               <span className="text-[10px] text-slate-400 block">
-                Faqat O'zbekiston raqamlari (+998)
+                Faqat O'zbekiston raqamlari (+998). Kod Telegram botimizga keladi.
               </span>
             </div>
 
@@ -182,11 +217,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
             {/* Submit Button */}
             <button
-              onClick={handleCheckPhone}
+              onClick={handleRequestCode}
               disabled={loading || phoneNumber.replace(/\D/g, '').length < 12}
               className="w-full min-h-[50px] rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-[#06154A] font-black text-sm flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-transform cursor-pointer disabled:opacity-50"
             >
-              {loading ? 'Bazadan qidirilmoqda...' : 'Tekshirish va Kirish →'}
+              {loading ? 'Kod yuborilmoqda...' : 'Telegram orqali kod olish →'}
             </button>
 
             {/* Doimiy admin / aloqa raqami */}
@@ -205,62 +240,95 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           </div>
         )}
 
-        {/* 2. MIJOZ TOPILGANDA: "ROSTAN SHU SIZMI?" SAVOLI */}
-        {step === 'confirm' && foundClient && (
-          <div className="space-y-4 p-4 bg-slate-900/90 rounded-2xl border border-amber-400/50 shadow-inner">
-            <div className="space-y-2 text-center">
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Bazadagi mijoz ma'lumoti:
-              </div>
-              <div className="p-3 bg-slate-950 rounded-xl border border-white/10 space-y-1">
-                <div className="text-lg font-black text-amber-300 break-words">
-                  {foundClient.clientName}
-                </div>
-                <div className="text-xs text-slate-300 flex items-center justify-center gap-2">
-                  <span>📍 {foundClient.region}</span>
-                  <span>•</span>
-                  <span className="font-mono">{foundClient.phoneFormatted}</span>
-                </div>
-              </div>
+        {/* 2. TELEGRAMDAN KELGAN KODNI KIRITISH */}
+        {step === 'code' && (
+          <div className="space-y-3.5">
+            <div className="text-center text-xs text-slate-300">
+              Raqam: <strong className="font-mono text-white">{phoneNumber}</strong>
             </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleVerifyCode();
+              }}
+              placeholder="••••••"
+              autoFocus
+              className="w-full min-h-[56px] px-4 rounded-xl bg-slate-950/90 border border-amber-400/50 text-white text-center font-mono text-3xl font-black tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-inner"
+            />
 
-            {/* Savol */}
-            <div className="text-center py-1">
-              <p className="text-sm font-black text-white">
-                Rostdan ham bu sizmisiz?
-              </p>
-              <p className="text-[11px] text-slate-300 mt-0.5">
-                «Ha» tugmasini bosib o'z akkauntingizga kiring
-              </p>
-            </div>
+            <button
+              onClick={handleVerifyCode}
+              disabled={loading || code.length !== 6}
+              className="w-full min-h-[50px] rounded-xl bg-gradient-to-r from-emerald-500 via-amber-400 to-amber-500 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <span>✅</span>
+              <span>{loading ? 'Tekshirilmoqda...' : 'Tasdiqlash va Kirish →'}</span>
+            </button>
 
-            {/* Tasdiqlash tugmalari */}
-            <div className="space-y-2">
-              <button
-                onClick={handleConfirmLogin}
-                disabled={loading}
-                className="w-full min-h-[50px] rounded-xl bg-gradient-to-r from-emerald-500 via-amber-400 to-amber-500 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer"
-              >
-                <span>✅</span>
-                <span>{loading ? 'Akkaunt ochilmoqda...' : 'Ha, bu men — Kirish →'}</span>
-              </button>
-
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setStep('input');
-                  setFoundClient(null);
-                }}
+                onClick={handleRequestCode}
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+                className="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
               >
-                🔄 Yo'q, bu men emas (Boshqa raqam kiritish)
+                🔁 Kodni qayta yuborish
+              </button>
+              <button
+                type="button"
+                onClick={backToInput}
+                disabled={loading}
+                className="py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                ✏️ Raqamni o'zgartirish
               </button>
             </div>
           </div>
         )}
 
-        {/* 3. BAZADA TOPILMAGANDA KO'RSATILADIGAN BLOK */}
+        {/* 3. RAQAM HALI BOTGA ULANMAGAN */}
+        {step === 'link' && (
+          <div className="space-y-3.5">
+            <ol className="p-3 bg-slate-900/90 rounded-2xl border border-amber-400/40 text-xs text-slate-200 space-y-1.5 list-decimal list-inside leading-relaxed">
+              <li>Quyidagi tugma orqali Telegram botimizni oching</li>
+              <li><strong>/start</strong> bosing va <strong>«📲 Kontaktni ulashish»</strong> tugmasini bosing</li>
+              <li>Shu yerga qaytib, <strong>«Kod yuborish»</strong> ni bosing</li>
+            </ol>
+
+            <a
+              href={botUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full min-h-[48px] rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer"
+            >
+              <span>🤖</span>
+              <span>Telegram botni ochish</span>
+            </a>
+
+            <button
+              onClick={handleRequestCode}
+              disabled={loading}
+              className="w-full min-h-[48px] rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-[#06154A] font-black text-sm flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-transform cursor-pointer disabled:opacity-50"
+            >
+              {loading ? 'Kod yuborilmoqda...' : 'Ulashdim — Kod yuborish →'}
+            </button>
+
+            <button
+              type="button"
+              onClick={backToInput}
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              ✏️ Raqamni o'zgartirish
+            </button>
+          </div>
+        )}
+
+        {/* 4. BAZADA TOPILMAGANDA KO'RSATILADIGAN BLOK */}
         {step === 'not_found' && (
           <div className="space-y-4 p-4 bg-rose-950/40 rounded-2xl border border-rose-500/40 text-center">
             <div className="space-y-1.5">
@@ -287,10 +355,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             {/* Qayta urinish */}
             <button
               type="button"
-              onClick={() => {
-                setStep('input');
-                setErrorMessage(null);
-              }}
+              onClick={backToInput}
               className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
             >
               ✏️ Raqamni qayta kiritish

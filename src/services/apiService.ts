@@ -9,14 +9,6 @@ import {
   PastWinner,
   PrizeScope
 } from '../types';
-import {
-  findKnownMaster,
-  buildFallbackUserData,
-  ADMIN_PHONE,
-  normalizePhone,
-  formatPhone,
-  KnownMaster
-} from './mastersDb';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -162,133 +154,8 @@ class ApiService {
   }
 
   /**
-   * Parolsiz raqamni tekshirish (OTP siz)
-   */
-  public async checkPhone(phone: string): Promise<{
-    found: boolean;
-    clientName?: string;
-    region?: string;
-    phoneKey?: string;
-    phoneFormatted?: string;
-    token?: string;
-    message?: string;
-    supportPhone: string;
-  }> {
-    const known = findKnownMaster(phone);
-
-    // Agar Google Apps Script URL mavjud bo'lsa, serverdan tekshirish
-    if (this.url) {
-      try {
-        const res = await this.request('auth.checkPhone', { phone });
-        if (res.success && res.data) {
-          if (res.data.found) {
-            return {
-              found: true,
-              clientName: res.data.clientName,
-              region: res.data.region,
-              phoneKey: res.data.phoneKey,
-              phoneFormatted: res.data.phoneFormatted,
-              token: res.data.token,
-              supportPhone: ADMIN_PHONE
-            };
-          } else {
-            return {
-              found: false,
-              message: res.data.message || 'Bunday mijoz bazada topilmadi',
-              supportPhone: ADMIN_PHONE
-            };
-          }
-        }
-      } catch (err) {
-        console.warn('[ApiService] Server checkPhone failed, using local masters DB fallback:', err);
-      }
-    }
-
-    // Server javob bermasa yoki ulanish bo'lmasa: o'rnatilgan "Ustalar" bazasidan tekshirish
-    if (known) {
-      const fallbackToken = `epco_tok_local_${known.phoneKey}`;
-      return {
-        found: true,
-        clientName: known.name,
-        region: known.region,
-        phoneKey: known.phoneKey,
-        phoneFormatted: known.phoneFormatted,
-        token: fallbackToken,
-        supportPhone: ADMIN_PHONE
-      };
-    }
-
-    return {
-      found: false,
-      message: 'Bunday mijoz bazada topilmadi',
-      supportPhone: ADMIN_PHONE
-    };
-  }
-
-  /**
-   * Foydalanuvchi "Ha, bu men" deb tasdiqlaganda kirish
-   */
-  public async loginDirect(phone: string, token?: string): Promise<{
-    user: User;
-    stats: ClientStats;
-    config: PromoConfig;
-    token: string;
-  }> {
-    const known = findKnownMaster(phone);
-
-    if (token) {
-      this.setToken(token);
-    } else {
-      const genToken = `epco_tok_local_${normalizePhone(phone)}`;
-      this.setToken(genToken);
-    }
-
-    if (this.url) {
-      try {
-        const res = await this.request('auth.loginDirect', { phone });
-        if (res.success && res.data?.user) {
-          this.cacheUserData(res.data.user, res.data.stats, res.data.config);
-          return {
-            user: res.data.user,
-            stats: res.data.stats,
-            config: res.data.config,
-            token: res.data.token || this.token || ''
-          };
-        }
-      } catch (e) {
-        console.warn('[ApiService] loginDirect server error, using fallback:', e);
-      }
-    }
-
-    if (known) {
-      const data = buildFallbackUserData(known);
-      this.cacheUserData(data.user, data.stats, data.config);
-      return {
-        ...data,
-        token: this.token || `epco_tok_local_${known.phoneKey}`
-      };
-    }
-
-    // Default yangi foydalanuvchi
-    const phoneKey = normalizePhone(phone);
-    const defaultMaster: KnownMaster = {
-      phoneKey,
-      phoneFormatted: formatPhone(phoneKey),
-      name: `Mijoz ${phoneKey.slice(-4)}`,
-      region: '01 Tashkent',
-      paidAmount: 0,
-      debtAmount: 0
-    };
-    const data = buildFallbackUserData(defaultMaster);
-    this.cacheUserData(data.user, data.stats, data.config);
-    return {
-      ...data,
-      token: this.token || `epco_tok_local_${phoneKey}`
-    };
-  }
-
-  /**
-   * Brauzer / PWA uchun 6 xonali Telegram OTP kodini so'rash (zaxira)
+   * Brauzer / PWA uchun 6 xonali kodni Telegram bot orqali so'rash.
+   * status: CODE_SENT | NEED_PHONE_LINK | NOT_FOUND | TOO_SOON | INVALID_PHONE | SEND_FAILED
    */
   public async requestCode(phone: string): Promise<ApiResponse<{ status: string; message: string; botUrl?: string }>> {
     const res = await this.request('auth.requestCode', { phone });
@@ -299,7 +166,7 @@ class ApiService {
   }
 
   /**
-   * 6 xonali OTP kodini tekshirish (zaxira)
+   * 6 xonali kodni tekshirish va sessiya tokenini olish
    */
   public async verifyCode(phone: string, code: string): Promise<ApiResponse<{ token: string; user: User; stats: ClientStats; config: PromoConfig }>> {
     const res = await this.request('auth.verifyCode', { phone, code });
