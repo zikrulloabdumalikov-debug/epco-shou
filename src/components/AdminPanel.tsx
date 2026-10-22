@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { PastWinner } from '../types';
 import { apiService } from '../services/apiService';
+import { playSuccessFanfare } from '../utils/audio';
 
 interface Broadcast {
   id: string;
@@ -92,6 +93,7 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
     const res = await apiService.admin<T>(action, payload);
     setBusy(false);
     if (res.success && res.data) {
+      playSuccessFanfare();
       setNotice(success);
       apply?.(res.data); // apply aniqroq xabar qo'yishi mumkin
       return true;

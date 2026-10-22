@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { installTapFeedback } from './utils/audio';
+
+// Har bir tugma bosilishiga yumshoq ovoz va tebranish
+installTapFeedback();
 
 // Telegram ichida bo'lsa WebApp ni tayyorlash va kengaytirish
 if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {

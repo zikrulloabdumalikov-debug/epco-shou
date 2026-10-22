@@ -63,16 +63,15 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({ stats, config }) =
           aria-label={L('Qo\'shimcha to\'lov', 'Дополнительная оплата')}
         />
         <div className="flex justify-between text-xs text-muted tabular-nums mt-1">
-          <span>$0</span>
-          <span>$2,500</span>
-          <span>$5,000</span>
+          <span>0</span>
+          <span>2 500</span>
+          <span>5 000</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        {tile(String(result.newTickets), L('jami bilet', 'всего билетов'), result.ticketDelta > 0)}
-        {tile(`#${result.estimatedRank}`, L('reytingda', 'в рейтинге'), result.rankDelta > 0)}
-        {tile(`${Math.round(result.newMetrics.percent)}%`, L('shouga chiqish', 'шанс на шоу'))}
+      <div className="grid grid-cols-2 gap-2">
+        {tile(String(result.newTickets), L('jami bilet bo\'ladi', 'станет билетов'), result.ticketDelta > 0)}
+        {tile(`#${result.estimatedRank}`, L('reytingdagi o\'rin', 'место в рейтинге'), result.rankDelta > 0)}
       </div>
 
       {!stats.isDebtCleared && (

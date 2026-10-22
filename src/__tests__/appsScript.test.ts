@@ -740,11 +740,12 @@ describe('Apps Script: botdagi tezkor tugmalar', () => {
   it('Biletlarim / O\'rnim / Qancha qoldi to\'g\'ri raqamlar bilan javob beradi', () => {
     const env = createEnv();
     env.shareContact(333, '+998930000003'); // Sardor: $800, qarzsiz, 3-o'rin
-    expect(press(env, 333, '🎟 Biletlarim')[0].text).toContain('Birinchi biletgacha: <b>$200</b>');
+    expect(press(env, 333, '🎟 Biletlarim')[0].text).toContain('Birinchi biletgacha: <b>200</b>');
 
     const rank = press(env, 333, "🏆 O'rnim")[0].text;
     expect(rank).toContain('Respublikada <b>#3</b> (3 tadan)');
-    expect(rank).toContain("2-o'ringa chiqish uchun yana <b>$401</b>");
+    expect(rank).toContain("2-o'ringa chiqish uchun yana <b>401</b>");
+    expect(rank).not.toContain('$');
 
     const time = press(env, 333, '/qoldi')[0].text;
     expect(time).toMatch(/Oy tugashiga <b>\d+ (kun|soat)<\/b> qoldi/);
@@ -756,7 +757,8 @@ describe('Apps Script: botdagi tezkor tugmalar', () => {
     env.shareContact(222, '+998910000002'); // Botir: 1 bilet, qarz $150
     const text = press(env, 222, '🎟 Biletlarim')[0].text;
     expect(text).toContain('<b>1 ta bilet</b> — ⚠️ hozircha nofaol');
-    expect(text).toContain('Qarz: <b>$150</b>');
+    expect(text).toContain('Qarz: <b>150</b>');
+    expect(text).not.toContain('$');
   });
 
   it('rus tilidagi Telegram uchun javob ruscha', () => {

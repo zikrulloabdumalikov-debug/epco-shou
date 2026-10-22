@@ -15,7 +15,6 @@ import epcoLogo from './assets/brand/epco-logo.png';
 
 import { HomeHero } from './components/HomeHero';
 import { PrizeCard } from './components/PrizeCard';
-import { ProbabilityCard } from './components/ProbabilityCard';
 import { SimulatorCard } from './components/SimulatorCard';
 import { LeaderboardView } from './components/LeaderboardView';
 import { TicketsModal } from './components/TicketsModal';
@@ -366,14 +365,15 @@ export default function App() {
             <section className="card overflow-hidden">
               <button onClick={() => setDetailsOpen(!detailsOpen)} className="w-full flex items-center justify-between px-4 py-4 text-left">
                 <span>
-                  <span className="block font-bold">{L('Batafsil hisob-kitob', 'Подробный расчёт')}</span>
-                  <span className="block text-sm text-muted">{L('Shouga chiqish imkoniyati va kalkulyator', 'Шанс на шоу и калькулятор')}</span>
+                  <span className="block font-bold">{L('Kalkulyator', 'Калькулятор')}</span>
+                  <span className="block text-sm text-muted">
+                    {L('Yana to\'lasangiz — nechta bilet va qaysi o\'rin', 'Если оплатить ещё — сколько билетов и какое место')}
+                  </span>
                 </span>
                 <ChevronDown size={22} className={`text-muted transition-transform ${detailsOpen ? 'rotate-180' : ''}`} />
               </button>
               {detailsOpen && (
-                <div className="px-4 pb-5 space-y-6 border-t border-line pt-4">
-                  <ProbabilityCard stats={stats} config={config} />
+                <div className="px-4 pb-5 border-t border-line pt-4">
                   <SimulatorCard stats={stats} config={config} />
                 </div>
               )}

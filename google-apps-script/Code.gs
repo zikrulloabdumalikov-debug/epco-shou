@@ -22,7 +22,7 @@ var TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 var DEFAULTS = {
   DEBT_TOLERANCE: 0,               // Qarz shu summadan oshmasa "qarzsiz"
   DEBTORS_IN_RANKING: true,        // Qarzdorlar reytingda ko'rinadimi
-  TICKET_PRICE: 1000,              // Har $1,000 = 1 bilet
+  TICKET_PRICE: 1000,              // Har 1 000 to'lov = 1 bilet
   SHOW_WINNERS_K: 30,              // Jonli shouga 30 ta bilet tasodifiy tanlanadi
   TIMEZONE: "Asia/Tashkent",       // Server vaqt mintaqasi
   SUPPORT_PHONE: "+998 90 556 90 60",
@@ -1646,8 +1646,9 @@ function escapeHtml(s) {
   return String(s === undefined || s === null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Summa valyuta belgisisiz, minglar bo'sh joy bilan: 3 200 (O'zbekistonda $ belgisi ishlatilmaydi) */
 function usd(n) {
-  return "$" + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
 function mainKeyboard(lang) {
@@ -1720,8 +1721,8 @@ function botAnswer(action, phoneKey, lang) {
   if (action === "tickets") {
     if (s.tickets === 0) {
       return { text: botT(lang,
-        "🎟 Hozircha biletingiz yo'q.\nBirinchi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Har $1,000 to'lov = 1 bilet</i>",
-        "🎟 Пока у вас нет билетов.\nДо первого билета: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Каждые $1,000 = 1 билет</i>") };
+        "🎟 Hozircha biletingiz yo'q.\nBirinchi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Har 1 000 to'lov = 1 bilet</i>",
+        "🎟 Пока у вас нет билетов.\nДо первого билета: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Каждые 1 000 оплаты = 1 билет</i>") };
     }
     if (s.isDebtCleared) {
       return { text: botT(lang,
@@ -1734,7 +1735,7 @@ function botAnswer(action, phoneKey, lang) {
   }
 
   if (action === "rank") {
-    var total = String(s.totalParticipants).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    var total = usd(s.totalParticipants);
     var lines = [
       botT(lang, "🏆 Respublikada <b>#" + s.currentRank + "</b> (" + total + " tadan)", "🏆 В республике <b>#" + s.currentRank + "</b> (из " + total + ")"),
       botT(lang, "📍 Viloyatda <b>#" + s.regionRank + "</b> (" + s.regionTotal + " tadan)", "📍 В регионе <b>#" + s.regionRank + "</b> (из " + s.regionTotal + ")")

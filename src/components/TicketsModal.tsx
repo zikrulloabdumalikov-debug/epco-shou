@@ -51,7 +51,7 @@ export const TicketsModal: React.FC<TicketsModalProps> = ({ isOpen, tickets, sta
         {tickets.length === 0 ? (
           <div className="py-10 text-center text-muted">
             <div className="text-lg font-semibold text-ink">{L('Hozircha bilet yo\'q', 'Пока нет билетов')}</div>
-            {L('Har $1,000 to\'lovga 1 ta bilet beriladi', 'За каждые $1,000 — 1 билет')}
+            {L('Har 1 000 to\'lovga 1 ta bilet beriladi', 'За каждые 1 000 оплаты — 1 билет')}
           </div>
         ) : (
           tickets.map((ticket, i) => {

@@ -17,10 +17,10 @@ export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({ isOpen, 
   const rules = [
     {
       icon: <Banknote size={20} />,
-      title: L('Har $1,000 to\'lov = 1 bilet', 'Каждые $1,000 = 1 билет'),
+      title: L('Har 1 000 to\'lov = 1 bilet', 'Каждые 1 000 оплаты = 1 билет'),
       text: L(
-        'Biletlar va $1,000 dan kam qoldiq har oy boshida nolga tushadi.',
-        'Билеты и остаток меньше $1,000 обнуляются в начале каждого месяца.'
+        'Biletlar va 1 000 dan kam qoldiq har oy boshida nolga tushadi.',
+        'Билеты и остаток меньше 1 000 обнуляются в начале каждого месяца.'
       ),
     },
     {

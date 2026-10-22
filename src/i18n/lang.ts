@@ -41,4 +41,5 @@ export function localizeMonth(text: string, language: Language): string {
   return MONTHS.uz.reduce((acc, name, i) => acc.replace(name, MONTHS.ru[i]), text);
 }
 
-export const money = (n: number | undefined) => `$${Math.round(n || 0).toLocaleString('en-US')}`;
+/** Summa valyuta belgisisiz, minglar bo'sh joy bilan: 3 200 (O'zbekistonda $ belgisi ishlatilmaydi) */
+export const money = (n: number | undefined) => String(Math.round(n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');

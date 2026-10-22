@@ -9,10 +9,9 @@ interface PrizeCardProps {
   config: PromoConfig;
 }
 
-/** Orzu ko'z oldida bo'lishi kerak: DAMAS rasmi, shouga qolgan vaqt va shouga chiqish imkoniyati */
-export const PrizeCard: React.FC<PrizeCardProps> = ({ stats, config }) => {
+/** Orzu ko'z oldida bo'lishi kerak: DAMAS rasmi va boshqa sovg'alar (foiz/kafolat ko'rsatilmaydi) */
+export const PrizeCard: React.FC<PrizeCardProps> = ({ config }) => {
   const L = useL();
-  const chance = stats.isDebtCleared ? Math.round(stats.probPercent || 0) : 0;
 
   return (
     <section className="card overflow-hidden">
@@ -22,9 +21,6 @@ export const PrizeCard: React.FC<PrizeCardProps> = ({ stats, config }) => {
         <div className="absolute left-4 bottom-3 right-4 text-white">
           <div className="text-xs font-semibold uppercase tracking-wider text-white/80">{L('Bosh sovg\'a', 'Главный приз')}</div>
           <div className="text-2xl font-extrabold">{config.grandPrize}</div>
-        </div>
-        <div className="absolute right-3 top-3 rounded-full bg-white px-3 py-1 text-sm font-bold text-brand">
-          {L(`Shouga chiqish: ${chance}%`, `Шанс на шоу: ${chance}%`)}
         </div>
       </div>
 

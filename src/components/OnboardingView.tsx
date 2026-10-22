@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { LeadForm, PromoConfig } from '../types';
 import { apiService } from '../services/apiService';
 import { ADMIN_PHONE, ADMIN_PHONE_RAW } from '../services/mastersDb';
-import { triggerHaptic } from '../utils/audio';
+import { triggerHaptic, playSuccessFanfare } from '../utils/audio';
 import { useL, useLanguage, setLanguage } from '../i18n/lang';
 import epcoLogo from '../assets/brand/epco-logo.png';
 
@@ -107,7 +107,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ phone, supportPh
     const res = await apiService.submitLead(finalForm);
     setSending(false);
     if (res.success) {
-      triggerHaptic([30, 40]);
+      playSuccessFanfare();
       setStep(QUESTIONS.length);
     } else {
       setError(res.error?.message || L('Yuborib bo\'lmadi. Qayta urinib ko\'ring.', 'Не удалось отправить. Попробуйте ещё раз.'));
