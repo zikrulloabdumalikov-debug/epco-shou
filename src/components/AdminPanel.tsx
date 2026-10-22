@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Search, Send, Trash2, Phone, CalendarClock, Dices, Archive, MonitorPlay, UserPlus } from 'lucide-react';
 import { PastWinner } from '../types';
 import { apiService } from '../services/apiService';
 import { playSuccessFanfare } from '../utils/audio';
+import { money } from '../i18n/lang';
+import { DrawShow, DrawWinner } from './DrawShow';
+
+// ── Server javoblari ─────────────────────────────────────────────────────
 
 interface Broadcast {
   id: string;
@@ -13,29 +18,80 @@ interface Broadcast {
   sent: number;
   failed: number;
   status: string;
+  sendAt: string;
+  pollResults: { voters: number; options: { option: string; count: number }[] } | null;
+}
+
+interface Template {
+  id: string;
+  title: string;
+  text: string;
+}
+
+interface TeamMember {
+  phone: string;
+  name: string;
+  role: 'admin' | 'agent';
+  agentCode: string;
 }
 
 interface Overview {
+  role: 'admin' | 'agent';
+  agentCode: string;
   mastersTotal: number;
   linkedTotal: number;
+  debtFreeTotal: number;
   activeToday: number;
-  leadsTotal: number;
-  recentLeads: { date: string; phone: string; name: string; activity: string; region: string }[];
+  month: string;
+  monthName: string;
   regions: string[];
-  settings: { grandPrize: string; prizesText: string; prizesTextRu: string; liveUrl: string };
-  winners: PastWinner[];
-  broadcasts: Broadcast[];
+  // faqat admin uchun
+  leadsTotal?: number;
+  recentLeads?: { date: string; phone: string; name: string; activity: string; region: string }[];
+  settings?: { grandPrize: string; prizesText: string; prizesTextRu: string; liveUrl: string };
+  winners?: PastWinner[];
+  broadcasts?: Broadcast[];
+  templates?: Template[];
+  team?: TeamMember[];
+  draw?: DrawWinner[];
+  agents?: string[];
 }
 
-type Section = 'overview' | 'broadcast' | 'winners' | 'settings';
+interface ClientCard {
+  phone: string;
+  name: string;
+  region: string;
+  agent: string;
+  paid: number;
+  debt: number;
+  tickets: number;
+  isDebtCleared: boolean;
+  gapToNextTicket: number;
+  rank: number;
+  linked: boolean;
+  linkedAt: string;
+  lastLogin: string;
+  lastActive: string;
+}
+
+interface StatRow {
+  key: string;
+  clients: number;
+  linked: number;
+  debtFree: number;
+  tickets: number;
+  activeTickets: number;
+  paid: number;
+}
+
+type Section = 'overview' | 'search' | 'broadcast' | 'draw' | 'winners' | 'stats' | 'team' | 'settings';
 type TargetType = 'all' | 'registered' | 'new' | 'region' | 'phone';
 type Kind = 'text' | 'photo' | 'poll';
 
-const input = 'field';
-const primaryBtn = 'btn btn-primary w-full';
 const card = 'card p-4 space-y-3';
 
 const formatDate = (iso: string) => {
+  if (!iso) return '—';
   const d = new Date(iso);
   return isNaN(d.getTime()) ? iso : d.toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
@@ -62,6 +118,13 @@ function compressImage(file: File): Promise<string> {
   });
 }
 
+const Stat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <div className="card p-3">
+    <div className="text-xs text-muted">{label}</div>
+    <div className="text-2xl font-extrabold text-brand tabular-nums">{money(value)}</div>
+  </div>
+);
+
 export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth }) => {
   const [section, setSection] = useState<Section>('overview');
   const [data, setData] = useState<Overview | null>(null);
@@ -69,6 +132,8 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const isAdmin = data?.role === 'admin';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,23 +151,31 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
     load();
   }, [load]);
 
-  const run = async <T,>(action: string, payload: Record<string, any>, success: string, apply?: (d: T) => void) => {
+  const patch = (p: Partial<Overview>) => setData((prev) => (prev ? { ...prev, ...p } : prev));
+
+  const run = async <T,>(action: string, payload: Record<string, any>, success: string | null, apply?: (d: T) => void) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     const res = await apiService.admin<T>(action, payload);
     setBusy(false);
     if (res.success && res.data) {
-      playSuccessFanfare();
-      setNotice(success);
+      if (success) {
+        playSuccessFanfare();
+        setNotice(success);
+      }
       apply?.(res.data); // apply aniqroq xabar qo'yishi mumkin
-      return true;
+      return res.data;
     }
     setError(res.error?.message || 'Xatolik yuz berdi');
-    return false;
+    return null;
   };
 
-  // ── Xabar yuborish holati ──
+  // ── Qidiruv ──
+  const [query, setQuery] = useState('');
+  const [clients, setClients] = useState<ClientCard[] | null>(null);
+
+  // ── Xabar ──
   const [targetType, setTargetType] = useState<TargetType>('all');
   const [targetValue, setTargetValue] = useState('');
   const [kind, setKind] = useState<Kind>('text');
@@ -112,38 +185,64 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
   const [buttonUrl, setButtonUrl] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [pollMultiple, setPollMultiple] = useState(false);
+  const [sendAt, setSendAt] = useState('');
 
-  // ── G'olib formasi ──
+  // ── Boshqalar ──
   const [winner, setWinner] = useState({ month: currentMonth, phone: '', name: '', region: '', prize: '', videoUrl: '', notify: true });
-
-  // ── Sozlamalar ──
   const [settings, setSettings] = useState({ grandPrize: '', prizesText: '', prizesTextRu: '', liveUrl: '' });
-  useEffect(() => {
-    if (data) setSettings(data.settings);
-  }, [data]);
+  const [member, setMember] = useState({ phone: '', name: '', role: 'agent' as 'admin' | 'agent', agentCode: '' });
+  const [stats, setStats] = useState<{ regions: StatRow[]; agents: StatRow[] } | null>(null);
+  const [drawNotify, setDrawNotify] = useState(true);
+  const [showDraw, setShowDraw] = useState(false);
 
-  const target = () => ({ type: targetType, value: targetValue.trim() });
+  useEffect(() => {
+    if (data?.settings) setSettings(data.settings);
+  }, [data?.settings]);
+
+  useEffect(() => {
+    if (section === 'stats' && !stats) {
+      apiService.admin<{ regions: StatRow[]; agents: StatRow[] }>('stats').then((res) => {
+        if (res.success && res.data) setStats(res.data);
+        else setError(res.error?.message || 'Statistikani yuklab bo\'lmadi');
+      });
+    }
+  }, [section, stats]);
+
+  const searchClients = async () => {
+    const d = await run<{ clients: ClientCard[] }>('client.search', { query }, null);
+    if (d) setClients(d.clients);
+  };
+
+  const messageClient = (phone: string) => {
+    setTargetType('phone');
+    setTargetValue(phone);
+    setSection('broadcast');
+    window.scrollTo({ top: 0 });
+  };
 
   const sendBroadcast = async () => {
-    const preview = await apiService.admin<{ count: number }>('broadcast.preview', { target: target() });
-    if (!preview.success) {
-      setError(preview.error?.message || 'Qabul qiluvchilarni aniqlab bo\'lmadi');
+    const target = { type: targetType, value: targetValue.trim() };
+    const scheduledIso = sendAt ? new Date(sendAt).toISOString() : '';
+    if (!scheduledIso) {
+      const preview = await apiService.admin<{ count: number }>('broadcast.preview', { target });
+      const count = preview.data?.count || 0;
+      if (!preview.success || count === 0) {
+        setError(preview.error?.message || 'Tanlangan guruhda botga ulangan mijoz yo\'q');
+        return;
+      }
+      if (!confirm(`Xabar ${count} ta mijozga yuboriladi. Davom etasizmi?`)) return;
+    } else if (!confirm(`Xabar ${formatDate(scheduledIso)} da yuboriladi. Tasdiqlaysizmi?`)) {
       return;
     }
-    const count = preview.data?.count || 0;
-    if (count === 0) {
-      setError('Tanlangan guruhda botga ulangan mijoz yo\'q');
-      return;
-    }
-    if (!confirm(`Xabar ${count} ta mijozga yuboriladi. Davom etasizmi?`)) return;
 
-    const ok = await run<{ broadcasts: Broadcast[] }>(
+    const d = await run<{ broadcasts: Broadcast[] }>(
       'broadcast.create',
       {
         broadcast: {
           kind,
           text,
-          target: target(),
+          target,
+          sendAt: scheduledIso || undefined,
           imageBase64: kind === 'photo' ? image : undefined,
           buttonText: kind !== 'poll' ? buttonText : undefined,
           buttonUrl: kind !== 'poll' ? buttonUrl : undefined,
@@ -152,90 +251,173 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
           pollMultiple,
         },
       },
-      `Xabar navbatga qo'yildi (${count} ta mijoz). Ko'p bo'lsa, bir necha daqiqada yuborib bo'linadi.`,
-      (d) => setData((prev) => (prev ? { ...prev, broadcasts: d.broadcasts } : prev))
+      scheduledIso ? 'Xabar rejalashtirildi.' : 'Xabar yuborilmoqda. Ko\'p mijozga bir necha daqiqa ketadi.',
+      (r) => patch({ broadcasts: r.broadcasts })
     );
-    if (ok) {
+    if (d) {
       setText('');
       setImage(null);
       setButtonText('');
       setButtonUrl('');
       setPollOptions(['', '']);
+      setSendAt('');
     }
   };
 
-  const tabs: [Section, string][] = [
-    ['overview', '📊 Umumiy'],
-    ['broadcast', '📣 Xabar'],
-    ['winners', '🏅 G\'oliblar'],
-    ['settings', '⚙️ Sozlama'],
-  ];
+  const tabs: [Section, string][] = isAdmin
+    ? [
+        ['overview', 'Umumiy'],
+        ['search', 'Qidiruv'],
+        ['broadcast', 'Xabar'],
+        ['draw', 'Tanlov'],
+        ['winners', 'G\'oliblar'],
+        ['stats', 'Statistika'],
+        ['team', 'Jamoa'],
+        ['settings', 'Sozlama'],
+      ]
+    : [
+        ['overview', 'Umumiy'],
+        ['search', 'Mijozlarim'],
+        ['stats', 'Statistika'],
+      ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-extrabold">Admin panel</h2>
+        <div>
+          <h2 className="text-2xl font-extrabold">{isAdmin ? 'Admin panel' : 'Agent paneli'}</h2>
+          {data && !isAdmin && <div className="text-sm text-muted">Agent: {data.agentCode}</div>}
+        </div>
         <button onClick={load} disabled={loading} className="icon-btn w-auto px-3">
-          {loading ? '...' : '🔄 Yangilash'}
+          {loading ? '...' : 'Yangilash'}
         </button>
       </div>
 
-      <div className="grid grid-cols-4 gap-1 p-1 bg-surface rounded-2xl border border-line">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => {
-              setSection(key);
-              setNotice(null);
-              setError(null);
-            }}
-            className={`min-h-[44px] rounded-xl text-xs font-bold ${section === key ? 'bg-brand text-white' : 'text-muted'}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="-mx-4 px-4 overflow-x-auto no-scrollbar">
+        <div className="flex gap-2 w-max">
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                setSection(key);
+                setNotice(null);
+                setError(null);
+              }}
+              className={`h-10 px-4 rounded-full text-sm font-bold whitespace-nowrap border ${
+                section === key ? 'bg-brand text-white border-brand' : 'bg-surface text-muted border-line'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <div className="p-3.5 rounded-2xl bg-bad-soft text-bad text-sm">{error}</div>}
       {notice && <div className="p-3.5 rounded-2xl bg-ok-soft text-ok text-sm">{notice}</div>}
       {!data && loading && <div className="text-center text-muted py-10">Yuklanmoqda...</div>}
 
+      {/* ── UMUMIY ── */}
       {data && section === 'overview' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            {[
-              ['Bazadagi mijozlar', data.mastersTotal],
-              ['Botga ulanganlar', data.linkedTotal],
-              ['Bugun faol', data.activeToday],
-              ['Yangi anketalar', data.leadsTotal],
-            ].map(([label, value]) => (
-              <div key={label as string} className="card p-3">
-                <div className="text-[11px] text-muted">{label}</div>
-                <div className="text-2xl font-extrabold text-brand tabular-nums">{Number(value).toLocaleString('en-US')}</div>
-              </div>
-            ))}
+            <Stat label={isAdmin ? 'Bazadagi mijozlar' : 'Mijozlarim'} value={data.mastersTotal} />
+            <Stat label="Botga ulanganlar" value={data.linkedTotal} />
+            <Stat label="Qarzsizlar" value={data.debtFreeTotal} />
+            <Stat label="Bugun faol" value={data.activeToday} />
           </div>
 
-          <div className={card}>
-            <h3 className="font-black">🆕 Oxirgi anketalar</h3>
-            {data.recentLeads.length === 0 && <p className="text-sm text-muted">Hozircha anketa yo'q</p>}
-            {data.recentLeads.map((l, i) => (
-              <div key={i} className="text-sm border-t border-line pt-2 first:border-0 first:pt-0">
-                <div className="font-bold">{l.name} · <span className="font-mono text-muted">{l.phone}</span></div>
-                <div className="text-xs text-muted">{l.activity} · {l.region} · {formatDate(l.date)}</div>
-              </div>
-            ))}
-          </div>
+          {isAdmin && (
+            <div className={card}>
+              <h3 className="font-bold">Yangi anketalar · {data.leadsTotal}</h3>
+              {!data.recentLeads?.length && <p className="text-sm text-muted">Hozircha yo'q</p>}
+              {data.recentLeads?.map((l, i) => (
+                <div key={i} className="text-sm border-t border-line pt-2 first:border-0 first:pt-0">
+                  <div className="font-semibold">
+                    {l.name} · <a href={`tel:+${l.phone.replace(/\D/g, '')}`} className="text-brand tabular-nums">{l.phone}</a>
+                  </div>
+                  <div className="text-xs text-muted">
+                    {l.activity} · {l.region} · {formatDate(l.date)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          <BroadcastList broadcasts={data.broadcasts} />
+          {isAdmin && data.broadcasts && (
+            <BroadcastList
+              broadcasts={data.broadcasts}
+              onCancel={(id) => run<{ broadcasts: Broadcast[] }>('broadcast.cancel', { id }, 'Bekor qilindi', (r) => patch({ broadcasts: r.broadcasts }))}
+            />
+          )}
         </div>
       )}
 
-      {data && section === 'broadcast' && (
+      {/* ── QIDIRUV ── */}
+      {data && section === 'search' && (
+        <div className="space-y-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              searchClients();
+            }}
+            className="flex gap-2"
+          >
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ism, telefon yoki agent kodi" className="field" />
+            <button type="submit" disabled={busy || query.trim().length < 2} className="btn btn-primary px-4 shrink-0" aria-label="Qidirish">
+              <Search size={20} />
+            </button>
+          </form>
+          {clients && clients.length === 0 && <div className="text-center text-muted py-6">Hech narsa topilmadi</div>}
+          {clients?.map((c) => (
+            <div key={c.phone} className={card}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold">{c.name}</div>
+                  <a href={`tel:+${c.phone.replace(/\D/g, '')}`} className="text-sm text-brand tabular-nums flex items-center gap-1">
+                    <Phone size={13} /> {c.phone}
+                  </a>
+                  <div className="text-xs text-muted">
+                    {c.region} · {c.agent || '—'} · #{c.rank}
+                  </div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${c.linked ? 'bg-ok-soft text-ok' : 'bg-page text-muted'}`}>
+                  {c.linked ? 'Botda' : 'Botga ulanmagan'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-page p-2">
+                  <div className="font-bold tabular-nums">{money(c.paid)}</div>
+                  <div className="text-[11px] text-muted">pul kirim</div>
+                </div>
+                <div className={`rounded-xl p-2 ${c.isDebtCleared ? 'bg-page' : 'bg-bad-soft'}`}>
+                  <div className={`font-bold tabular-nums ${c.isDebtCleared ? '' : 'text-bad'}`}>{money(c.debt)}</div>
+                  <div className="text-[11px] text-muted">qarz</div>
+                </div>
+                <div className="rounded-xl bg-page p-2">
+                  <div className="font-bold tabular-nums">{c.tickets}</div>
+                  <div className="text-[11px] text-muted">{c.isDebtCleared ? 'faol bilet' : 'nofaol bilet'}</div>
+                </div>
+              </div>
+              <div className="text-xs text-muted">
+                Keyingi biletgacha: {money(c.gapToNextTicket)} · Oxirgi faollik: {formatDate(c.lastActive)}
+              </div>
+              {isAdmin && c.linked && (
+                <button onClick={() => messageClient(c.phone)} className="btn btn-soft w-full min-h-[44px] text-sm">
+                  <Send size={16} /> Shaxsiy xabar yuborish
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── XABAR ── */}
+      {data && isAdmin && section === 'broadcast' && (
         <div className="space-y-4">
           <div className={card}>
-            <h3 className="font-black">Kimga?</h3>
-            <select value={targetType} onChange={(e) => setTargetType(e.target.value as TargetType)} className={input}>
+            <h3 className="font-bold">Kimga?</h3>
+            <select value={targetType} onChange={(e) => setTargetType(e.target.value as TargetType)} className="field">
               <option value="all">Hammaga (botga ulangan barcha)</option>
               <option value="registered">Faqat bazadagi mijozlarga</option>
               <option value="new">Faqat yangi (bazada yo'q) mijozlarga</option>
@@ -243,21 +425,23 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               <option value="phone">Bitta raqamga</option>
             </select>
             {targetType === 'region' && (
-              <select value={targetValue} onChange={(e) => setTargetValue(e.target.value)} className={input}>
+              <select value={targetValue} onChange={(e) => setTargetValue(e.target.value)} className="field">
                 <option value="">— viloyatni tanlang —</option>
                 {data.regions.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
                 ))}
               </select>
             )}
             {targetType === 'phone' && (
-              <input value={targetValue} onChange={(e) => setTargetValue(e.target.value)} placeholder="+998 90 123 45 67" className={input} />
+              <input value={targetValue} onChange={(e) => setTargetValue(e.target.value)} placeholder="+998 90 123 45 67" className="field" />
             )}
           </div>
 
           <div className={card}>
             <div className="grid grid-cols-3 gap-1 p-1 bg-page rounded-xl">
-              {([['text', '✉️ Matn'], ['photo', '🖼 Rasm'], ['poll', '📊 So\'rovnoma']] as [Kind, string][]).map(([k, label]) => (
+              {([['text', 'Matn'], ['photo', 'Rasm'], ['poll', 'So\'rovnoma']] as [Kind, string][]).map(([k, label]) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
@@ -268,25 +452,44 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               ))}
             </div>
 
+            {kind !== 'poll' && !!data.templates?.length && (
+              <div className="flex flex-wrap gap-2">
+                {data.templates.map((t) => (
+                  <span key={t.id} className="inline-flex items-center rounded-full bg-brand-soft text-brand-dark text-sm">
+                    <button onClick={() => setText(t.text)} className="pl-3 pr-1 py-1.5 font-semibold">
+                      {t.title}
+                    </button>
+                    <button
+                      onClick={() =>
+                        confirm(`"${t.title}" shabloni o'chirilsinmi?`) &&
+                        run<{ templates: Template[] }>('template.delete', { id: t.id }, null, (r) => patch({ templates: r.templates }))
+                      }
+                      className="pr-2 pl-1 py-1.5 text-muted"
+                      aria-label="O'chirish"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             {kind === 'photo' && (
               <div className="space-y-2">
-                <label className="block">
-                  <span className="text-xs text-muted">Rasm (telefon galereyasidan)</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        setImage(await compressImage(file));
-                      } catch (err: any) {
-                        setError(err.message);
-                      }
-                    }}
-                    className="block w-full text-sm text-muted mt-1 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-soft file:text-brand"
-                  />
-                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      setImage(await compressImage(file));
+                    } catch (err: any) {
+                      setError(err.message);
+                    }
+                  }}
+                  className="block w-full text-sm text-muted file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-soft file:text-brand"
+                />
                 {image && <img src={image} alt="" className="w-full max-h-56 object-contain rounded-xl border border-line" />}
               </div>
             )}
@@ -297,8 +500,20 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               rows={kind === 'poll' ? 2 : 5}
               maxLength={kind === 'poll' ? 300 : kind === 'photo' ? 1000 : 4000}
               placeholder={kind === 'poll' ? 'Savol: masalan, qaysi moy ko\'proq sotiladi?' : 'Xabar matni...'}
-              className={`${input} py-2.5`}
+              className="field"
             />
+
+            {kind === 'text' && text.trim() && (
+              <button
+                onClick={() => {
+                  const title = prompt('Shablon nomi (masalan: Oy oxiri eslatmasi)');
+                  if (title) run<{ templates: Template[] }>('template.save', { template: { title, text } }, 'Shablon saqlandi', (r) => patch({ templates: r.templates }));
+                }}
+                className="text-sm font-bold text-brand"
+              >
+                + Shablon sifatida saqlash
+              </button>
+            )}
 
             {kind === 'poll' ? (
               <div className="space-y-2">
@@ -308,10 +523,12 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
                       value={opt}
                       onChange={(e) => setPollOptions(pollOptions.map((o, j) => (j === i ? e.target.value : o)))}
                       placeholder={`${i + 1}-javob`}
-                      className={input}
+                      className="field"
                     />
                     {pollOptions.length > 2 && (
-                      <button onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))} className="icon-btn shrink-0 self-center">✕</button>
+                      <button onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))} className="icon-btn shrink-0 self-center">
+                        ✕
+                      </button>
                     )}
                   </div>
                 ))}
@@ -324,38 +541,127 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
                   <input type="checkbox" checked={pollMultiple} onChange={(e) => setPollMultiple(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
                   Bir nechta javob tanlash mumkin
                 </label>
-                <p className="text-[11px] text-muted">Javoblar «Sorovnoma_javoblari» varag'iga mijoz ismi va raqami bilan yoziladi.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                <input value={buttonText} onChange={(e) => setButtonText(e.target.value)} placeholder="Tugma matni (ixtiyoriy)" className={input} />
-                <input value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)} placeholder="https://..." className={input} />
+                <input value={buttonText} onChange={(e) => setButtonText(e.target.value)} placeholder="Tugma matni (ixtiyoriy)" className="field" />
+                <input value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)} placeholder="https://..." className="field" />
               </div>
             )}
+
+            <label className="block space-y-1">
+              <span className="flex items-center gap-1.5 text-sm text-muted">
+                <CalendarClock size={16} /> Yuborish vaqti (bo'sh qoldirsangiz — hozir)
+              </span>
+              <input type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)} className="field" />
+            </label>
 
             <button
               onClick={sendBroadcast}
               disabled={busy || !text.trim() || (kind === 'photo' && !image) || ((targetType === 'region' || targetType === 'phone') && !targetValue.trim())}
-              className={primaryBtn}
+              className="btn btn-primary w-full"
             >
-              {busy ? 'Yuborilmoqda...' : '📣 Yuborish'}
+              <Send size={18} /> {busy ? 'Yuborilmoqda...' : sendAt ? 'Rejalashtirish' : 'Yuborish'}
             </button>
           </div>
 
-          <BroadcastList broadcasts={data.broadcasts} />
+          {data.broadcasts && (
+            <BroadcastList
+              broadcasts={data.broadcasts}
+              onCancel={(id) => run<{ broadcasts: Broadcast[] }>('broadcast.cancel', { id }, 'Bekor qilindi', (r) => patch({ broadcasts: r.broadcasts }))}
+            />
+          )}
         </div>
       )}
 
-      {data && section === 'winners' && (
+      {/* ── TANLOV ── */}
+      {data && isAdmin && section === 'draw' && (
         <div className="space-y-4">
           <div className={card}>
-            <h3 className="font-black">G'olib qo'shish</h3>
-            <input value={winner.month} onChange={(e) => setWinner({ ...winner, month: e.target.value })} placeholder="Oy (masalan: Oktyabr 2026)" className={input} />
-            <input value={winner.phone} onChange={(e) => setWinner({ ...winner, phone: e.target.value })} placeholder="Telefon (bazada bo'lsa ism avtomatik)" className={input} />
-            <input value={winner.name} onChange={(e) => setWinner({ ...winner, name: e.target.value })} placeholder="Ism (telefon bo'lmasa)" className={input} />
-            <input value={winner.region} onChange={(e) => setWinner({ ...winner, region: e.target.value })} placeholder="Viloyat (ixtiyoriy)" className={input} />
-            <input value={winner.prize} onChange={(e) => setWinner({ ...winner, prize: e.target.value })} placeholder="Sovg'a (masalan: Chevrolet DAMAS)" className={input} />
-            <input value={winner.videoUrl} onChange={(e) => setWinner({ ...winner, videoUrl: e.target.value })} placeholder="YouTube havola (ixtiyoriy)" className={input} />
+            <h3 className="font-bold">{data.monthName} — jonli shou tanlovi</h3>
+            <p className="text-sm text-muted leading-relaxed">
+              Barcha faol (qarzsiz) biletlar orasidan 30 tasi tasodifiy tanlanadi. Natija "Tanlov" varag'iga yoziladi va oyda bir marta o'tkaziladi.
+            </p>
+            {!data.draw?.length ? (
+              <>
+                <label className="flex items-center gap-2 text-sm text-muted">
+                  <input type="checkbox" checked={drawNotify} onChange={(e) => setDrawNotify(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
+                  Tanlanganlarga botda tabrik yuborish
+                </label>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    confirm('Tanlov o\'tkazilsinmi? Bu oy uchun natija qayd etiladi.') &&
+                    run<{ winners: DrawWinner[]; poolSize: number; notified: number }>(
+                      'draw.run',
+                      { options: { count: 30, notify: drawNotify } },
+                      null,
+                      (r) => {
+                        patch({ draw: r.winners });
+                        setNotice(`Tanlov o'tkazildi: ${r.poolSize} ta faol biletdan ${r.winners.length} tasi tanlandi. Xabar yuborildi: ${r.notified} kishiga.`);
+                        setShowDraw(true);
+                      }
+                    )
+                  }
+                  className="btn btn-primary w-full"
+                >
+                  <Dices size={18} /> Tanlovni o'tkazish
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setShowDraw(true)} className="btn btn-primary w-full">
+                <MonitorPlay size={18} /> Natijani katta ekranda ko'rsatish
+              </button>
+            )}
+          </div>
+
+          {!!data.draw?.length && (
+            <div className="card divide-y divide-line">
+              {data.draw.map((w) => (
+                <div key={w.n} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                  <span className="w-7 text-muted tabular-nums">{w.n}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="font-semibold block truncate">{w.name}</span>
+                    <span className="text-xs text-muted">
+                      {w.region} · {w.phone}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs">{w.ticket}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className={card}>
+            <h3 className="font-bold">Oyni yopish</h3>
+            <p className="text-sm text-muted">Yangi oy uchun "Ustalar"ni tozalashdan oldin bosing — joriy holat "Arxiv ..." varag'iga nusxalanadi.</p>
+            <button
+              disabled={busy}
+              onClick={() =>
+                confirm(`${data.monthName} arxivlansinmi?`) &&
+                run<{ archived: string }>('month.archive', {}, null, (r) => setNotice(`Saqlandi: "${r.archived}" varag'i`))
+              }
+              className="btn btn-soft w-full"
+            >
+              <Archive size={18} /> Oyni arxivlash
+            </button>
+          </div>
+
+          {showDraw && !!data.draw?.length && <DrawShow monthName={data.monthName} winners={data.draw} onClose={() => setShowDraw(false)} />}
+        </div>
+      )}
+
+      {/* ── G'OLIBLAR ── */}
+      {data && isAdmin && section === 'winners' && (
+        <div className="space-y-4">
+          <div className={card}>
+            <h3 className="font-bold">G'olib qo'shish</h3>
+            <input value={winner.month} onChange={(e) => setWinner({ ...winner, month: e.target.value })} placeholder="Oy (masalan: Oktyabr 2026)" className="field" />
+            <input value={winner.phone} onChange={(e) => setWinner({ ...winner, phone: e.target.value })} placeholder="Telefon (bazada bo'lsa ism avtomatik)" className="field" />
+            <input value={winner.name} onChange={(e) => setWinner({ ...winner, name: e.target.value })} placeholder="Ism (telefon bo'lmasa)" className="field" />
+            <input value={winner.region} onChange={(e) => setWinner({ ...winner, region: e.target.value })} placeholder="Viloyat (ixtiyoriy)" className="field" />
+            <input value={winner.prize} onChange={(e) => setWinner({ ...winner, prize: e.target.value })} placeholder="Sovg'a (masalan: Chevrolet DAMAS)" className="field" />
+            <input value={winner.videoUrl} onChange={(e) => setWinner({ ...winner, videoUrl: e.target.value })} placeholder="YouTube havola (ixtiyoriy)" className="field" />
             <label className="flex items-center gap-2 text-sm text-muted">
               <input type="checkbox" checked={winner.notify} onChange={(e) => setWinner({ ...winner, notify: e.target.checked })} className="accent-[var(--color-brand)] w-4 h-4" />
               G'olibga botda tabrik xabari yuborish
@@ -364,40 +670,42 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               disabled={busy || !winner.prize.trim() || (!winner.phone.trim() && !winner.name.trim())}
               onClick={() =>
                 run<{ winners: PastWinner[]; notified: boolean }>('winner.add', { winner }, 'G\'olib qo\'shildi', (d) => {
-                  setData((prev) => (prev ? { ...prev, winners: d.winners } : prev));
+                  patch({ winners: d.winners });
                   setWinner({ ...winner, phone: '', name: '', region: '', prize: '', videoUrl: '' });
                   if (winner.notify && !d.notified) setNotice('G\'olib qo\'shildi, lekin tabrik yuborilmadi: raqam botga ulanmagan');
                 })
               }
-              className={primaryBtn}
+              className="btn btn-primary w-full"
             >
-              ➕ Qo'shish
+              Qo'shish
             </button>
           </div>
 
           <div className={card}>
-            <h3 className="font-black">G'oliblar ro'yxati ({data.winners.length})</h3>
-            {data.winners.length === 0 && <p className="text-sm text-muted">Hozircha yo'q</p>}
-            {data.winners.map((w) => (
+            <h3 className="font-bold">G'oliblar · {data.winners?.length || 0}</h3>
+            {!data.winners?.length && <p className="text-sm text-muted">Hozircha yo'q</p>}
+            {data.winners?.map((w) => (
               <div key={w.id} className="flex items-start justify-between gap-2 border-t border-line pt-2 first:border-0 first:pt-0">
                 <div className="min-w-0 text-sm">
-                  <div className="font-bold">{w.winnerName}</div>
-                  <div className="text-xs text-muted">{w.month} · {w.region} · 🎁 {w.prize}</div>
+                  <div className="font-semibold">{w.winnerName}</div>
+                  <div className="text-xs text-muted">
+                    {w.month} · {w.region} · {w.prize}
+                  </div>
                   {w.videoUrl && (
-                    <a href={w.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-bad underline">▶️ video</a>
+                    <a href={w.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-bad underline">
+                      video
+                    </a>
                   )}
                 </div>
                 <button
-                  onClick={() => {
-                    if (confirm(`${w.winnerName} ro'yxatdan o'chirilsinmi?`)) {
-                      run<{ winners: PastWinner[] }>('winner.delete', { id: w.id }, 'O\'chirildi', (d) =>
-                        setData((prev) => (prev ? { ...prev, winners: d.winners } : prev))
-                      );
-                    }
-                  }}
-                  className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-bad-soft text-bad"
+                  onClick={() =>
+                    confirm(`${w.winnerName} o'chirilsinmi?`) &&
+                    run<{ winners: PastWinner[] }>('winner.delete', { id: w.id }, 'O\'chirildi', (d) => patch({ winners: d.winners }))
+                  }
+                  className="icon-btn shrink-0 text-bad"
+                  aria-label="O'chirish"
                 >
-                  O'chirish
+                  <Trash2 size={16} />
                 </button>
               </div>
             ))}
@@ -405,35 +713,119 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
         </div>
       )}
 
-      {data && section === 'settings' && (
+      {/* ── STATISTIKA ── */}
+      {data && section === 'stats' && (
+        <div className="space-y-4">
+          {!stats && <div className="text-center text-muted py-6">Yuklanmoqda...</div>}
+          {stats && <StatTable title="Agentlar bo'yicha" rows={stats.agents} />}
+          {stats && <StatTable title="Viloyatlar bo'yicha" rows={stats.regions} />}
+        </div>
+      )}
+
+      {/* ── JAMOA ── */}
+      {data && isAdmin && section === 'team' && (
+        <div className="space-y-4">
+          <div className={card}>
+            <h3 className="font-bold">Jamoaga qo'shish</h3>
+            <input value={member.phone} onChange={(e) => setMember({ ...member, phone: e.target.value })} placeholder="Telefon raqami" className="field" />
+            <input value={member.name} onChange={(e) => setMember({ ...member, name: e.target.value })} placeholder="Ism" className="field" />
+            <div className="grid grid-cols-2 gap-1 p-1 bg-page rounded-xl">
+              {(['agent', 'admin'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setMember({ ...member, role: r })}
+                  className={`min-h-[40px] rounded-lg text-sm font-bold ${member.role === r ? 'bg-brand text-white' : 'text-muted'}`}
+                >
+                  {r === 'agent' ? 'Agent' : 'Admin'}
+                </button>
+              ))}
+            </div>
+            {member.role === 'agent' && (
+              <select value={member.agentCode} onChange={(e) => setMember({ ...member, agentCode: e.target.value })} className="field">
+                <option value="">— agent kodini tanlang —</option>
+                {data.agents?.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-muted">
+              {member.role === 'agent'
+                ? 'Agent faqat o\'z mijozlarini ko\'radi: biletlar, qarz, summalar va botdagi faollik. Xabar yubora olmaydi.'
+                : 'Admin hamma narsaga ega: xabarlar, tanlov, g\'oliblar, jamoa va sozlamalar.'}
+            </p>
+            <button
+              disabled={busy || !member.phone.trim() || (member.role === 'agent' && !member.agentCode)}
+              onClick={() =>
+                run<{ team: TeamMember[] }>('team.add', { member }, `${member.name || member.phone} qo'shildi. U o'z raqami bilan kirsa, panel ochiladi.`, (r) => {
+                  patch({ team: r.team });
+                  setMember({ phone: '', name: '', role: 'agent', agentCode: '' });
+                })
+              }
+              className="btn btn-primary w-full"
+            >
+              <UserPlus size={18} /> Qo'shish
+            </button>
+          </div>
+
+          <div className="card divide-y divide-line">
+            {!data.team?.length && <div className="p-4 text-sm text-muted">Hozircha jamoada hech kim yo'q</div>}
+            {data.team?.map((m) => (
+              <div key={m.phone} className="flex items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{m.name || m.phone}</div>
+                  <div className="text-xs text-muted tabular-nums">
+                    {m.phone} · {m.role === 'admin' ? 'Admin' : `Agent ${m.agentCode}`}
+                  </div>
+                </div>
+                <button
+                  onClick={() =>
+                    confirm(`${m.name || m.phone} jamoadan chiqarilsinmi?`) &&
+                    run<{ team: TeamMember[] }>('team.remove', { phone: m.phone }, 'Chiqarildi', (r) => patch({ team: r.team }))
+                  }
+                  className="icon-btn shrink-0 text-bad"
+                  aria-label="Chiqarish"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted">Script Properties'dagi ADMIN_PHONES raqamlari har doim admin va bu ro'yxatda ko'rinmaydi.</p>
+        </div>
+      )}
+
+      {/* ── SOZLAMA ── */}
+      {data && isAdmin && section === 'settings' && (
         <div className={card}>
-          <h3 className="font-black">Ilovada ko'rinadigan sozlamalar</h3>
+          <h3 className="font-bold">Ilovada ko'rinadigan sozlamalar</h3>
           <label className="block space-y-1">
-            <span className="text-xs text-muted">Bosh sovg'a</span>
-            <input value={settings.grandPrize} onChange={(e) => setSettings({ ...settings, grandPrize: e.target.value })} className={input} />
+            <span className="text-sm text-muted">Bosh sovg'a</span>
+            <input value={settings.grandPrize} onChange={(e) => setSettings({ ...settings, grandPrize: e.target.value })} className="field" />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-muted">Boshqa sovg'alar (o'zbekcha)</span>
-            <textarea value={settings.prizesText} onChange={(e) => setSettings({ ...settings, prizesText: e.target.value })} rows={3} className={`${input} py-2.5`} />
+            <span className="text-sm text-muted">Boshqa sovg'alar (o'zbekcha)</span>
+            <textarea value={settings.prizesText} onChange={(e) => setSettings({ ...settings, prizesText: e.target.value })} rows={3} className="field" />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-muted">Boshqa sovg'alar (ruscha)</span>
-            <textarea value={settings.prizesTextRu} onChange={(e) => setSettings({ ...settings, prizesTextRu: e.target.value })} rows={3} className={`${input} py-2.5`} />
+            <span className="text-sm text-muted">Boshqa sovg'alar (ruscha)</span>
+            <textarea value={settings.prizesTextRu} onChange={(e) => setSettings({ ...settings, prizesTextRu: e.target.value })} rows={3} className="field" />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-muted">Jonli efir / video (YouTube havola, bo'sh qoldirsa tugma yashiriladi)</span>
-            <input value={settings.liveUrl} onChange={(e) => setSettings({ ...settings, liveUrl: e.target.value })} placeholder="https://youtube.com/..." className={input} />
+            <span className="text-sm text-muted">Jonli efir / video (YouTube; bo'sh bo'lsa tugma yashiriladi)</span>
+            <input value={settings.liveUrl} onChange={(e) => setSettings({ ...settings, liveUrl: e.target.value })} placeholder="https://youtube.com/..." className="field" />
           </label>
           <button
             disabled={busy}
             onClick={() =>
-              run<{ settings: Overview['settings'] }>('settings.update', { settings }, 'Saqlandi. Mijozlar ilovani qayta ochganda ko\'rinadi.', (d) =>
-                setData((prev) => (prev ? { ...prev, settings: d.settings } : prev))
+              run<{ settings: NonNullable<Overview['settings']> }>('settings.update', { settings }, 'Saqlandi. Mijozlar ilovani qayta ochganda ko\'rinadi.', (d) =>
+                patch({ settings: d.settings })
               )
             }
-            className={primaryBtn}
+            className="btn btn-primary w-full"
           >
-            💾 Saqlash
+            Saqlash
           </button>
         </div>
       )}
@@ -441,24 +833,99 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
   );
 };
 
-const BroadcastList: React.FC<{ broadcasts: Broadcast[] }> = ({ broadcasts }) => (
+const StatTable: React.FC<{ title: string; rows: StatRow[] }> = ({ title, rows }) => (
+  <div className="card overflow-hidden">
+    <h3 className="font-bold px-4 pt-4 pb-2">{title}</h3>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-xs text-muted">
+          <tr className="border-b border-line">
+            <th className="text-left font-semibold px-4 py-2">Nomi</th>
+            <th className="text-right font-semibold px-2 py-2">Mijoz</th>
+            <th className="text-right font-semibold px-2 py-2">Botda</th>
+            <th className="text-right font-semibold px-2 py-2">Qarzsiz</th>
+            <th className="text-right font-semibold px-2 py-2">Bilet</th>
+            <th className="text-right font-semibold px-4 py-2">Pul kirim</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-b border-line last:border-0 tabular-nums">
+              <td className="px-4 py-2 font-semibold whitespace-nowrap">{r.key}</td>
+              <td className="text-right px-2">{r.clients}</td>
+              <td className="text-right px-2">
+                {r.linked}
+                <span className="text-muted text-xs"> ({r.clients ? Math.round((r.linked / r.clients) * 100) : 0}%)</span>
+              </td>
+              <td className="text-right px-2">{r.debtFree}</td>
+              <td className="text-right px-2">
+                {r.activeTickets}/{r.tickets}
+              </td>
+              <td className="text-right px-4 whitespace-nowrap">{money(r.paid)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+const BroadcastList: React.FC<{ broadcasts: Broadcast[]; onCancel: (id: string) => void }> = ({ broadcasts, onCancel }) => (
   <div className={card}>
-    <h3 className="font-black">📨 Yuborilgan xabarlar</h3>
+    <h3 className="font-bold">Xabarlar</h3>
     {broadcasts.length === 0 && <p className="text-sm text-muted">Hozircha yo'q</p>}
     {broadcasts.map((b) => {
       const done = b.sent + b.failed;
+      const canCancel = b.status === 'Rejalashtirilgan' || b.status === 'Navbatda';
       return (
-        <div key={b.id} className="text-sm border-t border-line pt-2 first:border-0 first:pt-0 space-y-1">
+        <div key={b.id} className="text-sm border-t border-line pt-3 first:border-0 first:pt-0 space-y-1.5">
           <div className="flex justify-between gap-2">
-            <span className="font-bold truncate">{b.kind} · {b.text || '—'}</span>
-            <span className={`shrink-0 text-xs font-bold ${b.status === 'Yuborildi' ? 'text-ok' : 'text-gold'}`}>{b.status}</span>
+            <span className="font-semibold truncate">
+              {b.kind} · {b.text || '—'}
+            </span>
+            <span
+              className={`shrink-0 text-xs font-bold ${
+                b.status === 'Yuborildi' ? 'text-ok' : b.status === 'Bekor qilindi' ? 'text-muted' : 'text-gold'
+              }`}
+            >
+              {b.status}
+            </span>
           </div>
           <div className="text-xs text-muted">
-            {b.target} · {formatDate(b.date)} · ✓ {b.sent} / {b.total}{b.failed ? ` · ✕ ${b.failed} (botni bloklagan)` : ''}
+            {b.target} · {b.sendAt ? `rejada: ${formatDate(b.sendAt)}` : formatDate(b.date)} · {b.sent}/{b.total} yetkazildi
+            {b.failed ? ` · ${b.failed} botni bloklagan` : ''}
           </div>
-          <div className="h-1.5 rounded-full bg-page overflow-hidden">
-            <div className="h-full bg-ok" style={{ width: `${b.total ? (done / b.total) * 100 : 0}%` }} />
-          </div>
+          {b.total > 0 && (
+            <div className="h-1.5 rounded-full bg-page overflow-hidden">
+              <div className="h-full bg-ok" style={{ width: `${(done / b.total) * 100}%` }} />
+            </div>
+          )}
+          {b.pollResults && (
+            <div className="space-y-1 pt-1">
+              <div className="text-xs text-muted">{b.pollResults.voters} kishi javob berdi</div>
+              {b.pollResults.options.map((o) => {
+                const pct = b.pollResults!.voters ? Math.round((o.count / b.pollResults!.voters) * 100) : 0;
+                return (
+                  <div key={o.option}>
+                    <div className="flex justify-between text-xs">
+                      <span>{o.option}</span>
+                      <span className="tabular-nums">
+                        {o.count} · {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-page overflow-hidden">
+                      <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {canCancel && (
+            <button onClick={() => confirm('Xabar bekor qilinsinmi?') && onCancel(b.id)} className="text-xs font-bold text-bad">
+              Bekor qilish
+            </button>
+          )}
         </div>
       );
     })}

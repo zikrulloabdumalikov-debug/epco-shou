@@ -280,8 +280,12 @@ export default function App() {
     </header>
   );
 
-  // Bazada yo'q admin — faqat admin panel
-  if (!boot.registered && boot.isAdmin) {
+  // Xodim (admin yoki agent) — bazada bo'lmasa ham panel ochiladi
+  const isStaff = Boolean(boot.isAdmin || boot.role === 'admin' || boot.role === 'agent');
+  const staffLabel = boot.role === 'agent' ? 'Agent' : 'Admin';
+
+  // Bazada yo'q xodim — faqat panel
+  if (!boot.registered && isStaff) {
     return (
       <div className="min-h-screen bg-page">
         {header}
@@ -316,8 +320,8 @@ export default function App() {
     { key: 'tickets', icon: <Ticket size={22} />, label: L('Biletlar', 'Билеты'), onClick: () => setIsTicketsOpen(true), active: false },
     { key: 'leaderboard', icon: <Trophy size={22} />, label: L('Reyting', 'Рейтинг'), onClick: () => goTo('leaderboard'), active: activeTab === 'leaderboard' },
   ];
-  if (boot.isAdmin) {
-    tabs.push({ key: 'admin', icon: <Wrench size={22} />, label: 'Admin', onClick: () => goTo('admin'), active: activeTab === 'admin' });
+  if (isStaff) {
+    tabs.push({ key: 'admin', icon: <Wrench size={22} />, label: staffLabel, onClick: () => goTo('admin'), active: activeTab === 'admin' });
   }
 
   const quickAction = (icon: React.ReactNode, label: string, onClick: () => void) => (
@@ -394,7 +398,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'admin' && boot.isAdmin && <AdminPanel currentMonth={config.currentMonthName} />}
+        {activeTab === 'admin' && isStaff && <AdminPanel currentMonth={config.currentMonthName} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 backdrop-blur-xl border-t border-line pb-safe">

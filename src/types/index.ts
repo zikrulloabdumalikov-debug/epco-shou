@@ -87,6 +87,7 @@ export type BootstrapData =
   | {
       registered: true;
       isAdmin?: boolean;
+      role?: 'admin' | 'agent' | '';
       user: User;
       stats: ClientStats;
       config: PromoConfig;
@@ -97,6 +98,7 @@ export type BootstrapData =
   | {
       registered: false;
       isAdmin?: boolean;
+      role?: 'admin' | 'agent' | '';
       phone: string;
       supportPhone: string;
       leadSubmitted: boolean;

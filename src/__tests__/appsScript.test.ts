@@ -102,6 +102,7 @@ function createEnv() {
       stats.masterReads++;
       return { getValues: () => ROWS.map((r) => r.slice()) };
     },
+    copyTo: () => ({ setName: (name: string) => (sheets[name] = new GridSheet(name)) }),
   };
   const sheets: Record<string, any> = { Ustalar: ustalar };
 
@@ -796,5 +797,105 @@ describe('Apps Script: botdagi tezkor tugmalar', () => {
     const menu = env.sent.find((m) => m.url.endsWith('/setChatMenuButton'))!;
     expect(menu.payload.menu_button.web_app.url).toContain('github.io/epco-shou');
     expect(env.sent.filter((m) => m.url.endsWith('/setMyCommands'))).toHaveLength(2);
+  });
+});
+
+describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
+  const setup = () => {
+    const env = createEnv();
+    env.props.set('ADMIN_PHONES', '+998900000001');
+    const admin = env.login(111, '+998900000001'); // Alisher (AG-1) — admin
+    env.sent.length = 0;
+    return { env, admin };
+  };
+
+  it('agent faqat o\'z mijozlarini ko\'radi va xabar yubora olmaydi', () => {
+    const { env, admin } = setup();
+    expect(env.api({ action: 'admin.team.add', token: admin, member: { phone: '+998999999999', name: 'Agent Jasur', role: 'agent', agentCode: 'xyz' } }).success).toBe(false);
+    expect(env.api({ action: 'admin.team.add', token: admin, member: { phone: '+998999999999', name: 'Agent Jasur', role: 'agent', agentCode: 'ag-2' } }).success).toBe(true);
+
+    const agent = env.login(555, '+998999999999');
+    const boot = env.api({ action: 'bootstrap', token: agent }).data;
+    expect(boot.role).toBe('agent');
+
+    const overview = env.api({ action: 'admin.overview', token: agent }).data;
+    expect(overview.mastersTotal).toBe(1); // faqat Botir (AG-2)
+    expect(overview.broadcasts).toBeUndefined();
+
+    expect(env.api({ action: 'admin.client.search', token: agent, query: 'Alisher' }).data.clients).toHaveLength(0);
+    const botir = env.api({ action: 'admin.client.search', token: agent, query: 'botir' }).data.clients[0];
+    expect(botir).toMatchObject({ name: 'Botir Moyxona', paid: 1200, debt: 150, tickets: 1, isDebtCleared: false, linked: false });
+
+    expect(env.api({ action: 'admin.broadcast.create', token: agent, broadcast: { kind: 'text', text: 'x' } }).error.code).toBe('FORBIDDEN');
+    expect(env.api({ action: 'admin.draw.run', token: agent }).error.code).toBe('FORBIDDEN');
+
+    // admin raqam bo'yicha ham topadi va ulanganligini ko'radi
+    const found = env.api({ action: 'admin.client.search', token: admin, query: '900000001' }).data.clients[0];
+    expect(found.linked).toBe(true);
+    expect(found.lastActive).not.toBe('');
+  });
+
+  it('tanlov: faqat faol biletlar, bir oyda bir marta, tanlanganlarga xabar', () => {
+    const { env, admin } = setup();
+    const res = env.api({ action: 'admin.draw.run', token: admin, options: { count: 30, notify: true } }).data;
+    // Faol biletlar faqat Alisherda (3 ta); Botir qarzdor, Sardorda bilet yo'q
+    expect(res.poolSize).toBe(3);
+    expect(res.winners).toHaveLength(3);
+    expect(new Set(res.winners.map((w: any) => w.ticket)).size).toBe(3);
+    expect(res.winners.every((w: any) => w.name === 'Alisher Usta')).toBe(true);
+    expect(res.notified).toBe(1);
+    expect(env.sent.find((m) => m.url.endsWith('/sendMessage'))!.payload.text).toContain('jonli shouga tanlandi');
+
+    expect(env.api({ action: 'admin.draw.run', token: admin }).error.message).toContain('allaqachon');
+    expect(env.api({ action: 'admin.draw.run', token: admin, options: { force: true, count: 2 } }).data.winners).toHaveLength(2);
+    expect(env.api({ action: 'admin.draw.get', token: admin }).data.winners).toHaveLength(2);
+  });
+
+  it('rejalashtirilgan xabar vaqti kelganda yuboriladi, bekor qilingani yuborilmaydi', () => {
+    const { env, admin } = setup();
+    const inTwoHours = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
+    env.api({ action: 'admin.broadcast.create', token: admin, broadcast: { kind: 'text', text: 'Shou bugun!', target: { type: 'all' }, sendAt: inTwoHours } });
+    const second = env.api({ action: 'admin.broadcast.create', token: admin, broadcast: { kind: 'text', text: 'Bekor', target: { type: 'all' }, sendAt: inTwoHours } }).data;
+    expect(second.broadcasts[0].status).toBe('Rejalashtirilgan');
+    expect(env.sent.filter((m) => m.url.endsWith('/sendMessage'))).toHaveLength(0);
+
+    env.api({ action: 'admin.broadcast.cancel', token: admin, id: second.broadcasts[0].id });
+    env.ctx.processBroadcasts(); // hali vaqti kelmagan
+    expect(env.sent.filter((m) => m.url.endsWith('/sendMessage'))).toHaveLength(0);
+
+    const realNowMs = env.ctx.nowMs;
+    env.ctx.nowMs = () => Date.now() + 3 * 3600 * 1000; // 3 soatdan keyin
+    try {
+      env.ctx.processBroadcasts();
+    } finally {
+      env.ctx.nowMs = realNowMs;
+    }
+    const sentTexts = env.sent.filter((m) => m.url.endsWith('/sendMessage')).map((m) => m.payload.text);
+    expect(sentTexts).toEqual(['Shou bugun!']);
+    const list = env.api({ action: 'admin.broadcast.list', token: admin }).data.broadcasts;
+    expect(list.map((b: any) => b.status)).toEqual(['Bekor qilindi', 'Yuborildi']);
+  });
+
+  it('shablonlar, statistika, arxiv va so\'rovnoma natijasi', () => {
+    const { env, admin } = setup();
+    env.api({ action: 'admin.template.save', token: admin, template: { title: 'Oy oxiri', text: '3 kun qoldi!' } });
+    const ov = env.api({ action: 'admin.overview', token: admin }).data;
+    expect(ov.templates.map((t: any) => t.title)).toEqual(['Oy oxiri']);
+    expect(ov.agents).toEqual(['AG-1', 'AG-2', 'AG-3']);
+
+    const stats = env.api({ action: 'admin.stats', token: admin }).data;
+    expect(stats.agents.find((a: any) => a.key === 'AG-1')).toMatchObject({ clients: 1, linked: 1, debtFree: 1, tickets: 3, activeTickets: 3 });
+
+    const archived = env.api({ action: 'admin.month.archive', token: admin }).data.archived;
+    expect(archived).toMatch(/^Arxiv /);
+    expect(env.sheets[archived]).toBeDefined();
+
+    env.shareContact(222, '+998910000002');
+    env.api({ action: 'admin.broadcast.create', token: admin, broadcast: { kind: 'poll', pollQuestion: 'Qaysi?', pollOptions: ['A', 'B'], target: { type: 'all' } } });
+    env.webhook({ update_id: 501, poll_answer: { poll_id: 'POLL1', user: { id: 222 }, option_ids: [0] } });
+    env.webhook({ update_id: 502, poll_answer: { poll_id: 'POLL1', user: { id: 222 }, option_ids: [1] } }); // fikrini o'zgartirdi
+    env.webhook({ update_id: 503, poll_answer: { poll_id: 'POLL1', user: { id: 111 }, option_ids: [1] } });
+    const poll = env.api({ action: 'admin.broadcast.list', token: admin }).data.broadcasts[0].pollResults;
+    expect(poll).toEqual({ voters: 2, options: [{ option: 'A', count: 0 }, { option: 'B', count: 2 }] });
   });
 });

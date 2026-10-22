@@ -1,7 +1,7 @@
 import React from 'react';
-import { Banknote, ShieldCheck, Shuffle, Gift, Phone } from 'lucide-react';
+import { Banknote, ShieldCheck, Shuffle, Gift, Phone, CalendarDays } from 'lucide-react';
 import { PromoConfig } from '../types';
-import { useL } from '../i18n/lang';
+import { useL, useLanguage, MONTHS } from '../i18n/lang';
 import { Sheet } from './Sheet';
 
 interface RulesAndTrustModalProps {
@@ -12,9 +12,29 @@ interface RulesAndTrustModalProps {
 
 export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({ isOpen, config, onClose }) => {
   const L = useL();
+  const language = useLanguage();
   const K = config.totalShowWinners;
 
+  // Aksiya oylari: boshlanish va tugash sanalari orasidagi oylar (masalan: oktyabr, noyabr, dekabr)
+  const months: string[] = [];
+  const [sy, sm] = (config.startDate || '').split('-').map(Number);
+  const [ey, em] = (config.endDate || '').split('-').map(Number);
+  if (sy && sm && ey && em) {
+    for (let y = sy, m = sm; y < ey || (y === ey && m <= em); m === 12 ? (y++, (m = 1)) : m++) {
+      months.push(MONTHS[language][m - 1].toLowerCase());
+      if (months.length > 12) break;
+    }
+  }
+
   const rules = [
+    {
+      icon: <CalendarDays size={20} />,
+      title: L("Har oy — alohida o'yin", 'Каждый месяц — отдельная игра'),
+      text: L(
+        `Aksiya ${months.join(', ')} oylarida. Har oy: 1 ta ${config.grandPrize} va 15 000$ lik sovg'alar. Har oy hisob 0 dan boshlanadi — o'tgan oy to'lovi keyingi oyga o'tmaydi.`,
+        `Акция в ${months.join(', ')}. Каждый месяц: 1 ${config.grandPrize} и подарки на 15 000$. Счёт каждый месяц начинается с 0 — оплаты прошлого месяца не переносятся.`
+      ),
+    },
     {
       icon: <Banknote size={20} />,
       title: L('Har 1 000 to\'lov = 1 bilet', 'Каждые 1 000 оплаты = 1 билет'),
