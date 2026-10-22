@@ -1,147 +1,101 @@
 import React from 'react';
-import { Language, PromoConfig } from '../types';
-import { translations } from '../i18n';
+import { PromoConfig } from '../types';
+import { useL } from '../i18n/lang';
 import damasPrizeImg from '../assets/images/damas_prize.webp';
 
 interface RulesAndTrustModalProps {
   isOpen: boolean;
   config: PromoConfig;
-  language: Language;
   isLargeText?: boolean;
   onClose: () => void;
 }
 
-export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({
-  isOpen,
-  config,
-  language,
-  isLargeText,
-  onClose,
-}) => {
-  const t = translations[language];
-
+export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({ isOpen, config, isLargeText, onClose }) => {
+  const L = useL();
   if (!isOpen) return null;
 
+  const rules = [
+    {
+      icon: '💵',
+      tone: 'bg-amber-500/10 border-amber-400/40 text-amber-300',
+      title: L('Har $1,000 to\'lov = 1 ta bilet', 'Каждые $1,000 оплаты = 1 билет'),
+      text: L(
+        'Har $1,000 to\'lov (pul kirim) uchun 1 ta raqamli bilet beriladi. Biletlar va $1,000 dan kam qoldiq har oy boshida nolga tushadi.',
+        'За каждые $1,000 оплаты выдаётся 1 номерной билет. Билеты и остаток меньше $1,000 обнуляются в начале каждого месяца.'
+      ),
+    },
+    {
+      icon: '🛡️',
+      tone: 'bg-rose-950/40 border-rose-500/50 text-rose-300',
+      title: L('Qarz bo\'lsa biletlar nofaol', 'При долге билеты неактивны'),
+      text: L(
+        'Qarzi bor mijozning biletlari nofaol bo\'ladi. Qarz to\'liq yopilishi bilan barcha biletlar avtomatik faollashadi va shouda qatnashadi.',
+        'Если есть долг, билеты неактивны. Как только долг погашен полностью, все билеты автоматически активируются и участвуют в шоу.'
+      ),
+    },
+    {
+      icon: '🎲',
+      tone: 'bg-sky-950/40 border-sky-400/40 text-sky-300',
+      title: L(`Har oy ${config.totalShowWinners} ta bilet jonli shouga`, `Каждый месяц ${config.totalShowWinners} билетов — на шоу`),
+      text: L(
+        `Reyting bo'yicha emas: barcha faol biletlar orasidan tasodifiy ${config.totalShowWinners} ta bilet tanlanadi va egalari jonli efir shousiga taklif qilinadi.`,
+        `Не по рейтингу: среди всех активных билетов случайно выбирают ${config.totalShowWinners} билетов, их владельцев приглашают в прямой эфир.`
+      ),
+    },
+    {
+      icon: '🎁',
+      tone: 'bg-emerald-950/40 border-emerald-400/40 text-emerald-300',
+      title: L('Sovg\'alar', 'Призы'),
+      text: L(
+        `Bosh sovg'a — ${config.grandPrize}. Shuningdek: ${config.prizesText || 'turli sovg\'alar va pul mukofotlari'}.`,
+        `Главный приз — ${config.grandPrize}. А также: ${config.prizesTextRu || config.prizesText || 'подарки и денежные призы'}.`
+      ),
+    },
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4">
       <div className="w-full max-w-lg bg-[#0D121F] rounded-3xl border border-amber-500/35 shadow-[0_20px_70px_rgba(0,0,0,0.95)] p-5 max-h-[85vh] flex flex-col text-white">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">📜</span>
-            <div>
-              <h3 className={`font-black ${isLargeText ? 'text-xl' : 'text-lg'}`}>
-                {t.rulesBtn} va Rasmiy Shartlar
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                EPCO Aksiya rasmiy qoidalari va sovg'alar fondi
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
-          >
+          <h3 className={`font-black ${isLargeText ? 'text-xl' : 'text-lg'}`}>📜 {L('Aksiya qoidalari', 'Правила акции')}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center" aria-label={L('Yopish', 'Закрыть')}>
             ✕
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-3.5 text-xs no-scrollbar">
-          {/* Grand Prize Card with Image */}
+        <div className="flex-1 overflow-y-auto py-3 space-y-3 text-xs no-scrollbar">
           <div className="rounded-2xl overflow-hidden border border-amber-400/40 relative">
-            <img
-              src={damasPrizeImg}
-              alt="Damas Avtomobili"
-              className="w-full h-36 object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = `${import.meta.env.BASE_URL}icon.svg`;
-              }}
-            />
+            <img src={damasPrizeImg} alt={config.grandPrize} className="w-full h-36 object-cover" />
             <div className="p-3 bg-gradient-to-t from-black via-black/80 to-transparent absolute bottom-0 inset-x-0">
-              <span className="text-[10px] uppercase font-bold text-amber-300">
-                Bosh Sovg'a Fondi: $15,000
-              </span>
-              <div className="text-base font-black text-white">
-                Chevrolet DAMAS & iPhone 18 Pro Max
+              <span className="text-[10px] uppercase font-bold text-amber-300">{L('Bosh sovg\'a', 'Главный приз')}</span>
+              <div className="text-base font-black text-white">{config.grandPrize}</div>
+            </div>
+          </div>
+
+          {rules.map((rule, i) => (
+            <div key={rule.icon} className={`p-3 rounded-2xl border space-y-1 ${rule.tone}`}>
+              <div className="font-extrabold text-sm">
+                {rule.icon} {i + 1}. {rule.title}
               </div>
+              <p className="text-slate-200 leading-relaxed text-[12px]">{rule.text}</p>
             </div>
-          </div>
+          ))}
 
-          {/* Key Rules Accordion / Points */}
-          <div className="space-y-2">
-            <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-400/40 space-y-1">
-              <span className="font-extrabold text-amber-300 text-xs flex items-center gap-1.5">
-                <span>💵</span> 1. Har $1,000 to'lov (PUL KIRIM) = 1 ta bilet
-              </span>
-              <p className="text-slate-200 leading-relaxed text-[11px]">
-                Mijoz kassaga yoki agentga har $1,000 to'lov qilishi bilan 1 ta rasmiy raqamli bilet taqdim etiladi. Biletlar va $1,000 dan kam qoldiq har oy boshida nollanadi va yangi oy uchun hisoblanadi.
-              </p>
-            </div>
-
-            <div className="bg-rose-950/40 p-3 rounded-2xl border border-rose-500/50 space-y-1">
-              <span className="font-extrabold text-rose-300 text-xs flex items-center gap-1.5">
-                <span>🛡️</span> 2. Qarz bo'lsa biletlar NOFAOL, qarz yopilsa AKTUAL!
-              </span>
-              <p className="text-rose-100 leading-relaxed text-[11px]">
-                Qarzi bor mijozning biletlari "NOFAOL" holatda bo'ladi. Qarz to'liq yopilib $0 bo'lishi bilan barcha biletlar avtomatik ravishda "AKTUAL" bo'ladi va shouda qatnashadi.
-              </p>
-            </div>
-
-            <div className="bg-sky-950/40 p-3 rounded-2xl border border-sky-400/40 space-y-1">
-              <span className="font-extrabold text-sky-300 text-xs flex items-center gap-1.5">
-                <span>🎲</span> 3. Har oy 30 ta bilet egalari jonli shouga taklif qilinadi
-              </span>
-              <p className="text-slate-200 leading-relaxed text-[11px]">
-                Bu reyting bo'yicha emas! Har oy barcha AKTUAL biletlar orasidan tasodifiy tanlov asosida 30 ta bilet tanlanadi va ularning egalari jonli efir shousiga taklif qilinadi.
-              </p>
-            </div>
-
-            <div className="bg-emerald-950/40 p-3 rounded-2xl border border-emerald-400/40 space-y-1">
-              <span className="font-extrabold text-emerald-300 text-xs flex items-center gap-1.5">
-                <span>📱</span> 4. Har oy reytingdagi 1-o'ringa — iPhone 18 Pro Max!
-              </span>
-              <p className="text-slate-200 leading-relaxed text-[11px]">
-                Joriy oyda eng ko'p PUL KIRIM qilgan qarzsiz 1-o'rindagi usta har oy kafolatlangan iPhone 18 Pro Max bilan taqdirlanadi!
-              </p>
-            </div>
-
-            <div className="bg-white/5 p-3 rounded-2xl border border-white/10 space-y-1">
-              <span className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
-                <span>🎁</span> 5. Qimmatbaho Sovg'alar Ro'yxati ($15,000 fond ichida)
-              </span>
-              <p className="text-slate-200 leading-relaxed text-[11px]">
-                • Bosh sovg'a: <strong>Chevrolet DAMAS</strong><br />
-                • Har oylik 1-o'rin: <strong>iPhone 18 Pro Max</strong><br />
-                • Jonli shoudagi boshqa sovg'alar: Katta televizorlar, muzlatgichlar, kir yuvish mashinalari, konditsionerlar, smartfonlar va zamonaviy air fryerlar!
-              </p>
-            </div>
-          </div>
-
-          {/* Official Contact Phone */}
-          <div className="p-3 bg-amber-400/10 border border-amber-400/30 rounded-2xl flex items-center justify-between">
+          <a
+            href={`tel:+${config.supportPhone.replace(/\D/g, '')}`}
+            className="p-3 bg-amber-400/10 border border-amber-400/30 rounded-2xl flex items-center justify-between"
+          >
             <div>
-              <span className="text-[10px] text-slate-400 block">
-                {t.supportContact}
-              </span>
-              <a
-                href={`tel:${config.supportPhone}`}
-                className="text-sm font-extrabold text-amber-300 hover:underline"
-              >
-                {config.supportPhone}
-              </a>
+              <span className="text-[11px] text-slate-400 block">{L('Savollar bo\'yicha', 'По вопросам')}</span>
+              <span className="text-sm font-extrabold text-amber-300">{config.supportPhone}</span>
             </div>
             <span className="text-2xl">📞</span>
-          </div>
+          </a>
         </div>
 
-        {/* Footer */}
         <div className="border-t border-white/10 pt-3">
-          <button
-            onClick={onClose}
-            className="w-full min-h-[44px] rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-[#06154A] font-extrabold text-xs active:scale-95 transition-transform cursor-pointer"
-          >
-            {t.closeBtn}
+          <button onClick={onClose} className="w-full min-h-[44px] rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#06154A] font-extrabold text-sm">
+            {L('Yopish', 'Закрыть')}
           </button>
         </div>
       </div>

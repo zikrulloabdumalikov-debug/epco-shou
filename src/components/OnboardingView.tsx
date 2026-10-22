@@ -3,6 +3,7 @@ import { LeadForm, PromoConfig } from '../types';
 import { apiService } from '../services/apiService';
 import { ADMIN_PHONE, ADMIN_PHONE_RAW } from '../services/mastersDb';
 import { triggerHaptic } from '../utils/audio';
+import { useL, useLanguage, setLanguage } from '../i18n/lang';
 
 interface OnboardingViewProps {
   phone: string;
@@ -12,62 +13,82 @@ interface OnboardingViewProps {
   onLogout: () => void;
 }
 
+// [o'zbekcha (Sheets'ga shu yoziladi), ruscha]
+type Option = [string, string];
+
 type Question =
-  | { key: keyof LeadForm; type: 'text'; title: string; hint?: string; placeholder: string; optional?: boolean }
-  | { key: keyof LeadForm; type: 'choice'; title: string; hint?: string; options: string[]; columns?: 1 | 2 };
+  | { key: keyof LeadForm; type: 'text'; title: Option; placeholder: Option; optional?: boolean }
+  | { key: keyof LeadForm; type: 'choice'; title: Option; options: Option[]; columns?: 1 | 2 };
 
 const QUESTIONS: Question[] = [
-  { key: 'name', type: 'text', title: 'Ismingiz nima?', placeholder: 'Masalan: Jasur' },
+  { key: 'name', type: 'text', title: ['Ismingiz nima?', 'Как вас зовут?'], placeholder: ['Masalan: Jasur', 'Например: Жасур'] },
   {
     key: 'activity',
     type: 'choice',
-    title: 'Faoliyatingiz qanday?',
-    options: ['Moyxona (moy almashtirish)', 'Avtodo\'kon (ehtiyot qismlar)', 'Avtoservis / usta', 'Ulgurji savdo', 'Boshqa'],
+    title: ['Faoliyatingiz qanday?', 'Чем вы занимаетесь?'],
+    options: [
+      ['Moyxona (moy almashtirish)', 'Замена масла (моечная)'],
+      ['Avtodo\'kon (ehtiyot qismlar)', 'Автомагазин (запчасти)'],
+      ['Avtoservis / usta', 'Автосервис / мастер'],
+      ['Ulgurji savdo', 'Оптовая торговля'],
+      ['Boshqa', 'Другое'],
+    ],
   },
   {
     key: 'shopName',
     type: 'text',
-    title: 'Do\'kon yoki moyxonangiz nomi',
-    placeholder: 'Masalan: "Jasur Avto Moy"',
+    title: ['Do\'kon yoki moyxonangiz nomi', 'Название магазина или сервиса'],
+    placeholder: ['Masalan: "Jasur Avto Moy"', 'Например: «Jasur Avto Moy»'],
     optional: true,
   },
   {
     key: 'region',
     type: 'choice',
-    title: 'Qaysi viloyatdasiz?',
+    title: ['Qaysi viloyatdasiz?', 'В каком вы регионе?'],
     columns: 2,
     options: [
-      'Toshkent shahri', 'Toshkent viloyati', 'Andijon', 'Farg\'ona', 'Namangan', 'Samarqand', 'Buxoro',
-      'Xorazm', 'Qashqadaryo', 'Surxondaryo', 'Jizzax', 'Sirdaryo', 'Navoiy', 'Qoraqalpog\'iston',
+      ['Toshkent shahri', 'г. Ташкент'], ['Toshkent viloyati', 'Ташкентская обл.'], ['Andijon', 'Андижан'],
+      ['Farg\'ona', 'Фергана'], ['Namangan', 'Наманган'], ['Samarqand', 'Самарканд'], ['Buxoro', 'Бухара'],
+      ['Xorazm', 'Хорезм'], ['Qashqadaryo', 'Кашкадарья'], ['Surxondaryo', 'Сурхандарья'], ['Jizzax', 'Джизак'],
+      ['Sirdaryo', 'Сырдарья'], ['Navoiy', 'Навои'], ['Qoraqalpog\'iston', 'Каракалпакстан'],
     ],
   },
-  { key: 'district', type: 'text', title: 'Tuman yoki shahar', placeholder: 'Masalan: Urgut tumani' },
+  { key: 'district', type: 'text', title: ['Tuman yoki shahar', 'Район или город'], placeholder: ['Masalan: Urgut tumani', 'Например: Ургутский район'] },
   {
     key: 'volume',
     type: 'choice',
-    title: 'Oyiga taxminan qancha moy sotasiz yoki ishlatasiz?',
-    options: ['100 litrgacha', '100–500 litr', '500–1000 litr', '1000 litrdan ko\'p'],
+    title: ['Oyiga taxminan qancha moy sotasiz yoki ishlatasiz?', 'Сколько масла в месяц вы продаёте или используете?'],
+    options: [
+      ['100 litrgacha', 'До 100 литров'],
+      ['100–500 litr', '100–500 литров'],
+      ['500–1000 litr', '500–1000 литров'],
+      ['1000 litrdan ko\'p', 'Более 1000 литров'],
+    ],
   },
   {
     key: 'brands',
     type: 'text',
-    title: 'Hozir qaysi moy brendlari bilan ishlaysiz?',
-    placeholder: 'Masalan: Lukoil, Mobil',
+    title: ['Hozir qaysi moy brendlari bilan ishlaysiz?', 'С какими марками масла работаете сейчас?'],
+    placeholder: ['Masalan: Lukoil, Mobil', 'Например: Lukoil, Mobil'],
     optional: true,
   },
   {
     key: 'source',
     type: 'choice',
-    title: 'EPCO aksiyasi haqida qayerdan bildingiz?',
-    options: ['EPCO agentidan', 'Tanish-bilishdan', 'Telegram', 'Instagram', 'Boshqa'],
+    title: ['EPCO aksiyasi haqida qayerdan bildingiz?', 'Откуда вы узнали об акции EPCO?'],
+    options: [
+      ['EPCO agentidan', 'От агента EPCO'], ['Tanish-bilishdan', 'От знакомых'],
+      ['Telegram', 'Telegram'], ['Instagram', 'Instagram'], ['Boshqa', 'Другое'],
+    ],
   },
 ];
 
-const EMPTY_FORM: LeadForm = {
-  name: '', activity: '', shopName: '', region: '', district: '', volume: '', brands: '', source: '',
-};
+const EMPTY_FORM: LeadForm = { name: '', activity: '', shopName: '', region: '', district: '', volume: '', brands: '', source: '' };
 
 export const OnboardingView: React.FC<OnboardingViewProps> = ({ phone, supportPhone, leadSubmitted, config, onLogout }) => {
+  const L = useL();
+  const language = useLanguage();
+  const pick = (o: Option) => (language === 'ru' ? o[1] : o[0]);
   // -1 = tanishtiruv, 0..N-1 = savollar, N = yakun
   const [step, setStep] = useState(leadSubmitted ? QUESTIONS.length : -1);
   const [form, setForm] = useState<LeadForm>(EMPTY_FORM);
@@ -88,7 +109,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ phone, supportPh
       triggerHaptic([30, 40]);
       setStep(QUESTIONS.length);
     } else {
-      setError(res.error?.message || 'Yuborib bo\'lmadi. Qayta urinib ko\'ring.');
+      setError(res.error?.message || L('Yuborib bo\'lmadi. Qayta urinib ko\'ring.', 'Не удалось отправить. Попробуйте ещё раз.'));
     }
   };
 
@@ -97,109 +118,100 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ phone, supportPh
     const updated = { ...form, [question.key]: answer !== undefined ? answer : form[question.key] };
     setForm(updated);
     triggerHaptic(15);
-    if (step === QUESTIONS.length - 1) {
-      submit(updated);
-    } else {
-      setStep(step + 1);
-    }
+    if (step === QUESTIONS.length - 1) submit(updated);
+    else setStep(step + 1);
   };
+
+  const primaryBtn = 'w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#06154A] font-black active:scale-[0.98] transition-transform disabled:opacity-40';
 
   return (
     <div className="min-h-screen bg-ambient-mesh bg-[#06154A] text-white flex flex-col">
       <header className="flex items-center justify-between px-4 py-3 pt-safe">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-[#06154A] font-black">
-            E
-          </div>
-          <span className="font-black text-lg">EPCO <span className="text-amber-400">Shou</span></span>
+        <div className="font-black text-lg">
+          EPCO <span className="text-amber-400">Shou</span>
         </div>
-        <button onClick={onLogout} className="text-xs text-slate-400 hover:text-white px-2 py-1">
-          Chiqish
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setLanguage(language === 'uz' ? 'ru' : 'uz')} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-white/10">
+            {language === 'uz' ? 'RU' : 'UZ'}
+          </button>
+          <button onClick={onLogout} className="text-xs text-slate-400 hover:text-white px-2 py-1">
+            {L('Chiqish', 'Выйти')}
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 w-full max-w-md mx-auto px-4 pb-8 flex flex-col">
-        {/* Tanishtiruv */}
         {step === -1 && (
-          <div className="flex-1 flex flex-col justify-center space-y-5 animate-in fade-in duration-300">
+          <div className="flex-1 flex flex-col justify-center space-y-5">
             <div className="text-center space-y-2">
               <div className="text-5xl">👋</div>
-              <h1 className="text-2xl font-black leading-tight">Xush kelibsiz!</h1>
+              <h1 className="text-2xl font-black">{L('Xush kelibsiz!', 'Добро пожаловать!')}</h1>
               <p className="text-sm text-slate-300 leading-relaxed">
-                <span className="font-mono text-white">{phone}</span> raqami hali aksiya ishtirokchilari ro'yxatida yo'q.
+                {L('Raqamingiz hali aksiya ishtirokchilari ro\'yxatida yo\'q:', 'Ваш номер пока не в списке участников акции:')}{' '}
+                <span className="font-mono text-white">{phone}</span>
               </p>
             </div>
 
             <div className="glass-card-gold p-4 rounded-2xl space-y-2.5">
-              <div className="text-xs font-bold text-amber-300 uppercase tracking-wider">Aksiyada nimalar bor?</div>
+              <div className="text-xs font-bold text-amber-300 uppercase tracking-wider">{L('Aksiyada nimalar bor?', 'Что разыгрывается?')}</div>
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-2xl">🚐</span>
-                <span>Bosh sovg'a — <b>{config?.grandPrize || 'Chevrolet DAMAS'}</b></span>
+                <span>
+                  {L('Bosh sovg\'a —', 'Главный приз —')} <b>{config?.grandPrize || 'Chevrolet DAMAS'}</b>
+                </span>
               </div>
               <div className="flex items-center gap-3 text-sm">
-                <span className="text-2xl">📱</span>
-                <span>Har oy 1-o'ringa — <b>{config?.firstPlacePrize || 'iPhone 18 Pro Max'}</b></span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-2xl">💰</span>
-                <span>Umumiy sovg'a fondi — <b>${(config?.totalPrizePoolUsd || 15000).toLocaleString('en-US')}</b></span>
+                <span className="text-2xl">🎁</span>
+                <span>
+                  {L(
+                    config?.prizesText || '1 500$ gacha qiymatdagi sovg\'alar va pul mukofotlari',
+                    config?.prizesTextRu || 'Подарки и денежные призы до 1 500$'
+                  )}
+                </span>
               </div>
             </div>
 
             <p className="text-sm text-slate-300 text-center leading-relaxed">
-              Bir necha savolga javob bering — menejerimiz siz bilan bog'lanib, aksiyaga qo'shib qo'yadi.
+              {L(
+                'Bir necha savolga javob bering — menejerimiz siz bilan bog\'lanib, aksiyaga qo\'shib qo\'yadi.',
+                'Ответьте на несколько вопросов — наш менеджер свяжется с вами и добавит в акцию.'
+              )}
             </p>
-            <button
-              onClick={() => setStep(0)}
-              className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#06154A] font-black text-base shadow-[0_8px_30px_rgba(245,158,11,0.35)] active:scale-[0.98] transition-transform"
-            >
-              Boshlash →
+            <button onClick={() => setStep(0)} className={primaryBtn}>
+              {L('Boshlash →', 'Начать →')}
             </button>
           </div>
         )}
 
-        {/* Savollar */}
         {question && (
-          <div key={step} className="flex-1 flex flex-col pt-2 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div key={step} className="flex-1 flex flex-col pt-2">
             <div className="flex items-center gap-3 mb-6">
-              <button
-                onClick={() => setStep(step - 1)}
-                className="w-9 h-9 shrink-0 rounded-xl bg-white/10 hover:bg-white/15 flex items-center justify-center"
-                aria-label="Orqaga"
-              >
+              <button onClick={() => setStep(step - 1)} className="w-9 h-9 shrink-0 rounded-xl bg-white/10 hover:bg-white/15" aria-label={L('Orqaga', 'Назад')}>
                 ←
               </button>
               <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-300"
-                  style={{ width: `${((step + 1) / QUESTIONS.length) * 100}%` }}
-                />
+                <div className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-300" style={{ width: `${((step + 1) / QUESTIONS.length) * 100}%` }} />
               </div>
               <span className="text-xs text-slate-400 tabular-nums shrink-0">
                 {step + 1}/{QUESTIONS.length}
               </span>
             </div>
 
-            <h2 className="text-xl font-black leading-snug mb-4">{question.title}</h2>
-
-            {error && (
-              <div className="mb-3 p-3 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-sm">{error}</div>
-            )}
+            <h2 className="text-xl font-black leading-snug mb-4">{pick(question.title)}</h2>
+            {error && <div className="mb-3 p-3 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-sm">{error}</div>}
 
             {question.type === 'choice' ? (
               <div className={`grid gap-2 ${question.columns === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                 {question.options.map((option) => (
                   <button
-                    key={option}
-                    onClick={() => next(option)}
+                    key={option[0]}
+                    onClick={() => next(option[0])}
                     disabled={sending}
                     className={`min-h-[52px] px-4 py-3 rounded-2xl text-left text-sm font-bold border transition-all active:scale-[0.98] ${
-                      value === option
-                        ? 'bg-amber-400 text-[#06154A] border-amber-300'
-                        : 'bg-white/5 border-white/15 hover:bg-white/10 hover:border-amber-400/50'
+                      value === option[0] ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 border-white/15 hover:bg-white/10'
                     }`}
                   >
-                    {option}
+                    {pick(option)}
                   </button>
                 ))}
               </div>
@@ -215,41 +227,41 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ phone, supportPh
                   autoFocus
                   value={value}
                   onChange={(e) => setForm({ ...form, [question.key]: e.target.value })}
-                  placeholder={question.placeholder}
+                  placeholder={pick(question.placeholder)}
                   maxLength={100}
                   className="w-full min-h-[54px] px-4 rounded-2xl bg-slate-950/80 border border-amber-400/50 text-white text-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
-                <button
-                  type="submit"
-                  disabled={sending || (!value.trim() && !question.optional)}
-                  className="w-full min-h-[52px] rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#06154A] font-black disabled:opacity-40 active:scale-[0.98] transition-transform"
-                >
-                  {sending ? 'Yuborilmoqda...' : value.trim() || !question.optional ? 'Davom etish →' : 'O\'tkazib yuborish →'}
+                <button type="submit" disabled={sending || (!value.trim() && !question.optional)} className={primaryBtn}>
+                  {sending
+                    ? L('Yuborilmoqda...', 'Отправляем...')
+                    : value.trim() || !question.optional
+                    ? L('Davom etish →', 'Далее →')
+                    : L('O\'tkazib yuborish →', 'Пропустить →')}
                 </button>
               </form>
             )}
           </div>
         )}
 
-        {/* Yakun: aloqa raqami */}
         {step === QUESTIONS.length && (
-          <div className="flex-1 flex flex-col justify-center space-y-5 text-center animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex-1 flex flex-col justify-center space-y-5 text-center">
             <div className="text-6xl">✅</div>
             <div className="space-y-2">
-              <h1 className="text-2xl font-black">Arizangiz qabul qilindi!</h1>
+              <h1 className="text-2xl font-black">{L('Arizangiz qabul qilindi!', 'Заявка принята!')}</h1>
               <p className="text-sm text-slate-300 leading-relaxed">
-                Aksiyada ishtirok etish uchun quyidagi raqam bilan bog'laning. Menejerimiz sizni ro'yxatga qo'shgach,
-                biletlaringiz va reytingdagi o'rningiz shu yerda ko'rinadi.
+                {L(
+                  'Aksiyada ishtirok etish uchun quyidagi raqam bilan bog\'laning. Ro\'yxatga qo\'shilgach, biletlaringiz va reytingdagi o\'rningiz shu yerda ko\'rinadi.',
+                  'Чтобы участвовать в акции, позвоните по номеру ниже. После добавления в список здесь появятся ваши билеты и место в рейтинге.'
+                )}
               </p>
             </div>
             <a
               href={`tel:${contactRaw}`}
-              className="w-full min-h-[60px] rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-black text-lg flex items-center justify-center gap-3 shadow-[0_8px_30px_rgba(16,185,129,0.35)] active:scale-[0.98] transition-transform"
+              className="w-full min-h-[60px] rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-black text-lg flex items-center justify-center gap-3"
             >
-              <span>📞</span>
-              <span className="tabular-nums">{contactPhone}</span>
+              📞 <span className="tabular-nums">{contactPhone}</span>
             </a>
-            <p className="text-xs text-slate-400">Qo'ng'iroq qilish uchun raqam ustiga bosing</p>
+            <p className="text-xs text-slate-400">{L('Qo\'ng\'iroq qilish uchun bosing', 'Нажмите, чтобы позвонить')}</p>
           </div>
         )}
       </main>

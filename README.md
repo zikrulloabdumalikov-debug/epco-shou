@@ -28,8 +28,8 @@ EPCO motor moylari mijozlari (ustalar, moyxonachilar, avto-do'konlar) uchun ishl
 - **Biletlar va $1,000 dan kam qoldiq har oy boshida NOLGA tushadi**, yangi oy yangi to'lovlar bilan boshlanadi.
 - **Qarzi bor mijozning biletlari "NOFAOL" holatda bo'ladi.** Qarz $0 qilib to'liq yopilishi bilan barcha biletlar avtomatik ravishda **"AKTUAL"** bo'ladi.
 - Har oy barcha AKTUAL biletlar orasidan **30 ta bilet tasodifiy tanlanadi** va egalari jonli efir shousiga taklif qilinadi (reyting bo'yicha emas, tasodifiy gipergeometrik tanlov).
-- **Umumiy sovg'a fondi: $15,000.** Bosh sovg'a — **Chevrolet DAMAS** (fond ichida).
-- Har oy reytingda 1-o'rinni olgan qarzsiz usta **iPhone 18 Pro Max** sovg'asini oladi.
+- Bosh sovg'a — **Chevrolet DAMAS**, shuningdek **1 500$ gacha qiymatdagi turli sovg'alar va pul mukofotlari** (matnlarni admin paneldan o'zgartirish mumkin).
+- Reytingda mijoz ismlari va biletlar soni ochiq ko'rsatiladi; telefon raqami va to'lov summalari boshqalarga ko'rinmaydi.
 
 ---
 
@@ -52,7 +52,8 @@ Quyidagi **Script Properties** parametrlarini qo'shing:
 | `BOT_TOKEN` | `7123456789:AAH...` | Telegram @BotFather dan olingan bot tokeni |
 | `WEBHOOK_SECRET` | `epco_9f3kQ2xLm8Rt4vZp` | **Majburiy.** Kamida 16 belgili tasodifiy so'z (harf, raqam, `_`, `-`). Busiz bot xabarlari qabul qilinmaydi |
 | `BOT_USERNAME` | `epcoaksiya_bot` | Bot username (`@` siz) |
-| `ADMIN_CHAT_ID` | `123456789` | Buyurtmalar yuboriladigan admin Telegram ID |
+| `ADMIN_PHONES` | `+998905569060, +998911112233` | **Admin panel** ochiladigan raqamlar (vergul bilan). Bu raqam bilan kirganda pastda «🛠 Admin» bo'limi chiqadi |
+| `ADMIN_CHAT_ID` | `123456789` | Yangi anketalar haqida xabar boradigan Telegram chat ID (ixtiyoriy) |
 | `WEBAPP_URL` | `https://script.google.com/macros/s/.../exec` | Ixtiyoriy. `setTelegramWebhook` Web App manzilini o'zi topa olmasa |
 
 ### 2.3. Funksiyalarni Ishga Tushirish Ketma-ketligi (Run)
@@ -63,8 +64,10 @@ Avval **2.4** bo'yicha Deploy qiling, keyin Apps Script muharririda quyidagilarn
    - `Ustalar` varag'ini o'qib keshga oladi va ikkita varaq yaratadi:
      - **`Ulanishlar`** — har bir mijoz uchun bitta qator: botga ulangan sana, oxirgi kirish, oxirgi faollik, kirishlar soni va holat (Bazada / Yangi / Anketa to'ldirdi). `N1` da jami ulanganlar, `P1` da bugun faol bo'lganlar.
      - **`Yangi_mijozlar`** — bazada yo'q mijozlar to'ldirgan anketalar (ism, faoliyat turi, viloyat, oylik hajm va h.k.).
+     - **`Goliblar`** — admin paneldan qo'shilgan g'oliblar (YouTube video havolasi bilan).
+     - Admin paneldan xabar yuborilganda **`Xabarlar`** (kimga, nechtasi yetdi) va so'rovnoma javoblari uchun **`Sorovnoma_javoblari`** varaqlari o'zi yaratiladi.
 2. **`installTriggers`** ni tanlang va **Run** tugmasini bosing:
-   - Har 10 daqiqada `Ustalar` keshini yangilaydi (ilova tez ochilishi uchun) va har kuni eski sessiyalarni tozalaydi.
+   - Har 10 daqiqada `Ustalar` keshini yangilaydi (ilova tez ochilishi uchun), har daqiqada navbatdagi ommaviy xabarlarni yuboradi va har kuni eski sessiyalarni tozalaydi.
    - Jadvalni qo'lda o'zgartirsangiz, kesh avtomatik tozalanadi (`onEdit`), yangi ma'lumot darhol ko'rinadi.
 3. **`setTelegramWebhook`** ni tanlang va **Run** tugmasini bosing:
    - Botni Web App'ga `?secret=WEBHOOK_SECRET` bilan ulaydi. Log'da `"ok":true` chiqishi kerak.

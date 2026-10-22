@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
-import { User, Language } from '../types';
-import { translations } from '../i18n';
+import { User } from '../types';
 import { triggerHaptic } from '../utils/audio';
-import { User as UserIcon, Phone, MapPin, Eye, LogOut, X } from 'lucide-react';
+import { User as UserIcon, Phone, MapPin, LogOut, X } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { useL, useLanguage } from '../i18n/lang';
 
 interface ProfileModalProps {
   isOpen: boolean;
   user: User;
-  language: Language;
   isLargeText?: boolean;
   onClose: () => void;
-  onUpdateConsent: (consent: boolean) => Promise<void>;
   onLogout: () => Promise<void>;
   soundOn: boolean;
   onToggleSound: () => void;
@@ -22,184 +20,90 @@ interface ProfileModalProps {
 export const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
   user,
-  language,
   isLargeText,
   onClose,
-  onUpdateConsent,
   onLogout,
   soundOn,
   onToggleSound,
   onToggleTextSize,
   onToggleLanguage,
 }) => {
-  const t = translations[language];
-  const [consent, setConsent] = useState(!user.isAnonymous);
-  const [isUpdating, setIsUpdating] = useState(false);
+  const L = useL();
+  const language = useLanguage();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleToggleConsent = async () => {
-    const next = !consent;
-    setConsent(next);
-    setIsUpdating(true);
-    triggerHaptic(20);
+  const handleLogoutClick = async () => {
+    if (!confirm(L('Tizimdan chiqasizmi?', 'Выйти из аккаунта?'))) return;
+    setIsLoggingOut(true);
+    triggerHaptic(30);
     try {
-      await onUpdateConsent(next);
-    } catch (e) {
-      console.error(e);
-      setConsent(!next); // revert
+      await onLogout();
     } finally {
-      setIsUpdating(false);
+      setIsLoggingOut(false);
+      onClose();
     }
   };
 
-  const handleLogoutClick = async () => {
-    if (confirm(t.profileLogoutConfirm)) {
-      setIsLoggingOut(true);
-      triggerHaptic(30);
-      try {
-        await onLogout();
-      } finally {
-        setIsLoggingOut(false);
-        onClose();
-      }
-    }
-  };
+  const toggleClass = (on: boolean) =>
+    `min-h-[60px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-colors ${
+      on ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'
+    }`;
+
+  const infoRow = (icon: React.ReactNode, label: string, value: string, mono?: boolean) => (
+    <div className="p-3 bg-[#081028] border border-white/10 rounded-2xl flex items-center gap-3">
+      {icon}
+      <div className="min-w-0">
+        <span className="text-[10px] text-slate-400 uppercase font-bold block">{label}</span>
+        <span className={`font-bold text-white text-sm truncate block ${mono ? 'font-mono' : ''}`}>{value}</span>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md bg-[#0D121F] rounded-3xl border border-amber-500/35 shadow-[0_20px_70px_rgba(0,0,0,0.95)] p-5 sm:p-6 text-white space-y-5">
-        {/* Header */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4">
+      <div className="w-full max-w-md bg-[#0D121F] rounded-3xl border border-amber-500/35 shadow-[0_20px_70px_rgba(0,0,0,0.95)] p-5 sm:p-6 text-white space-y-4">
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-400">
-              <UserIcon className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className={`font-black ${isLargeText ? 'text-xl' : 'text-lg'}`}>
-                {t.profileTitle}
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Shaxsiy sozlamalar va maxfiylik
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
-          >
+          <h3 className={`font-black ${isLargeText ? 'text-xl' : 'text-lg'}`}>👤 {L('Profil', 'Профиль')}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center" aria-label={L('Yopish', 'Закрыть')}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* User Info Fields */}
-        <div className="space-y-2.5 text-xs">
-          <div className="p-3 bg-[#081028] border border-white/10 rounded-2xl flex items-center gap-3">
-            <UserIcon className="w-4 h-4 text-amber-400 shrink-0" />
-            <div className="min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                Ism / Do'kon:
-              </span>
-              <span className="font-bold text-white text-sm truncate block">
-                {user.name}
-              </span>
-            </div>
-          </div>
-
-          <div className="p-3 bg-[#081028] border border-white/10 rounded-2xl flex items-center gap-3">
-            <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                {t.profilePhone}:
-              </span>
-              <span className="font-mono font-bold text-emerald-300 text-sm truncate block">
-                {user.phone}
-              </span>
-            </div>
-          </div>
-
-          <div className="p-3 bg-[#081028] border border-white/10 rounded-2xl flex items-center gap-3">
-            <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
-            <div className="min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                {t.profileRegion}:
-              </span>
-              <span className="font-bold text-slate-200 truncate block">
-                {user.region}
-              </span>
-            </div>
-          </div>
+        <div className="space-y-2.5">
+          {infoRow(<UserIcon className="w-4 h-4 text-amber-400 shrink-0" />, L('Ism / do\'kon', 'Имя / магазин'), user.name)}
+          {infoRow(<Phone className="w-4 h-4 text-emerald-400 shrink-0" />, L('Telefon', 'Телефон'), user.phone, true)}
+          {infoRow(<MapPin className="w-4 h-4 text-sky-400 shrink-0" />, L('Hudud', 'Регион'), user.region)}
         </div>
 
-        {/* Privacy Consent Toggle */}
-        <div className="p-3.5 bg-amber-400/10 border border-amber-400/30 rounded-2xl space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Eye className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-bold text-amber-200">
-                {t.profileConsent}
-              </span>
-            </div>
-            <button
-              onClick={handleToggleConsent}
-              disabled={isUpdating}
-              className={`w-12 h-6 rounded-full transition-colors p-0.5 flex items-center cursor-pointer ${
-                consent ? 'bg-amber-400 justify-end' : 'bg-slate-700 justify-start'
-              }`}
-            >
-              <span className="w-5 h-5 rounded-full bg-slate-950 shadow-md block" />
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">
-            {t.profileConsentNote}
-          </p>
-        </div>
-
-        {/* Ilova sozlamalari */}
         <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={onToggleSound}
-            className={`min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-colors ${
-              soundOn ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'
-            }`}
-          >
+          <button onClick={onToggleSound} className={toggleClass(soundOn)}>
             <span className="text-lg">{soundOn ? '🔊' : '🔇'}</span>
-            {soundOn ? t.soundOn : t.soundOff}
+            {soundOn ? L('Ovoz yoqiq', 'Звук вкл.') : L('Ovoz o\'chiq', 'Звук выкл.')}
           </button>
-          <button
-            onClick={onToggleTextSize}
-            className={`min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-colors ${
-              isLargeText ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'
-            }`}
-          >
+          <button onClick={onToggleTextSize} className={toggleClass(Boolean(isLargeText))}>
             <span className="text-lg font-black">A+</span>
-            {isLargeText ? t.textSizeNormal : t.textSizeToggle}
+            {L('Katta harf', 'Крупный шрифт')}
           </button>
-          <button
-            onClick={onToggleLanguage}
-            className="min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border bg-white/5 text-slate-300 border-white/10"
-          >
-            <span className="text-lg font-black">{language === 'uz' ? 'UZ' : 'RU'}</span>
-            {language === 'uz' ? 'Tilni almashtirish' : 'Сменить язык'}
+          <button onClick={onToggleLanguage} className={toggleClass(false)}>
+            <span className="text-lg font-black">{language === 'uz' ? 'RU' : 'UZ'}</span>
+            {language === 'uz' ? 'Русский' : 'O\'zbekcha'}
           </button>
         </div>
 
         <div className="flex justify-center">
-          <PWAInstallButton language={language} />
+          <PWAInstallButton />
         </div>
 
-        {/* Logout Button */}
-        <div className="pt-2">
-          <button
-            onClick={handleLogoutClick}
-            disabled={isLoggingOut}
-            className="w-full py-3.5 rounded-2xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-rose-300 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>{isLoggingOut ? 'Chiqilmoqda...' : t.logoutBtn}</span>
-          </button>
-        </div>
+        <button
+          onClick={handleLogoutClick}
+          disabled={isLoggingOut}
+          className="w-full py-3.5 rounded-2xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-rose-300 font-black text-sm flex items-center justify-center gap-2"
+        >
+          <LogOut className="w-4 h-4" />
+          {isLoggingOut ? L('Chiqilmoqda...', 'Выходим...') : L('Chiqish', 'Выйти')}
+        </button>
       </div>
     </div>
   );

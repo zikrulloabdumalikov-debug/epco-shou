@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/apiService';
-import { CheckCircle2, XCircle, Search, ArrowLeft, ShieldCheck, Award } from 'lucide-react';
+import { CheckCircle2, XCircle, Search, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { useL } from '../i18n/lang';
 
 interface TicketVerifyPageProps {
   initialTicketNumber?: string;
@@ -11,6 +12,7 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
   initialTicketNumber = '',
   onBackToApp,
 }) => {
+  const L = useL();
   const [ticketNumber, setTicketNumber] = useState(initialTicketNumber);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -35,14 +37,14 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
         setResult({
           valid: false,
           ticketNumber: clean,
-          message: res.error?.message || 'Bilet bazadan topilmadi yoki haqiqiy emas'
+          message: res.error?.message || L('Bilet topilmadi', 'Билет не найден')
         });
       }
     } catch (err: any) {
       setResult({
         valid: false,
         ticketNumber: clean,
-        message: err.message || 'Serverga ulanishda xatolik yuz berdi'
+        message: err.message || L("Serverga ulanib bo'lmadi", 'Не удалось подключиться к серверу')
       });
     } finally {
       setLoading(false);
@@ -66,7 +68,7 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
             onClick={onBackToApp}
             className="flex items-center gap-2 text-xs font-bold text-amber-400 hover:text-amber-300 mb-4 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" /> Bosh sahifaga qaytish
+            <ArrowLeft className="w-4 h-4" /> {L('Ilovaga qaytish', 'Вернуться в приложение')}
           </button>
         )}
 
@@ -75,10 +77,10 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
             <ShieldCheck className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">
-            Biletni Tekshirish
+            {L('Biletni tekshirish', 'Проверка билета')}
           </h1>
           <p className="text-xs text-slate-300 mt-1">
-            EPCO – Katta Rozig'ish Shou rasmiy bilet tasdiqlash tizimi
+            {L("EPCO Katta Rozig'ish Shou — rasmiy bilet tekshiruvi",'EPCO Большое шоу — официальная проверка билетов')}
           </p>
         </div>
 
@@ -95,7 +97,7 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
               type="text"
               value={ticketNumber}
               onChange={(e) => setTicketNumber(e.target.value.toUpperCase())}
-              placeholder="EPCO-2610-0001"
+              placeholder="EPCO-2610-ABC12-001"
               className="w-full px-4 py-3.5 pl-11 rounded-2xl bg-[#081028] border border-white/15 focus:border-amber-400 text-white font-mono tracking-wider placeholder:text-slate-500 outline-none text-sm font-bold uppercase transition-all"
             />
             <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -106,7 +108,7 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
             disabled={loading || !ticketNumber.trim()}
             className="w-full py-3.5 rounded-2xl font-black text-sm uppercase tracking-wider bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 hover:brightness-110 active:scale-[0.98] disabled:opacity-50 transition-all shadow-lg shadow-amber-500/20"
           >
-            {loading ? 'Tekshirilmoqda...' : 'Haqiqiyligini Tekshirish'}
+            {loading ? L('Tekshirilmoqda...', 'Проверяем...') : L('Tekshirish', 'Проверить')}
           </button>
         </form>
 
@@ -119,44 +121,39 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
                   <CheckCircle2 className="w-7 h-7 text-emerald-400 shrink-0" />
                   <div>
                     <h3 className="font-black text-emerald-300 text-base">
-                      Bilet Tasdiqlandi!
+                      {L('Bilet haqiqiy!', 'Билет подлинный!')}
                     </h3>
                     <p className="text-[11px] text-emerald-200/80">
-                      Ushbu bilet rasmiy bazada ro'yxatga olingan.
+                      {result.message}
                     </p>
                   </div>
                 </div>
 
                 <div className="bg-black/40 rounded-xl p-3 font-mono text-xs space-y-1.5 border border-white/5">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Bilet raqami:</span>
+                    <span className="text-slate-400">{L('Bilet raqami:', 'Номер билета:')}</span>
                     <span className="font-bold text-amber-300">{result.ticketNumber}</span>
                   </div>
                   {result.month && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Tiraj oyi:</span>
+                      <span className="text-slate-400">{L('Oy:', 'Месяц:')}</span>
                       <span className="text-white font-medium">{result.month}</span>
                     </div>
                   )}
                   {result.ownerMasked && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Egasi:</span>
+                      <span className="text-slate-400">{L('Egasi:', 'Владелец:')}</span>
                       <span className="text-white font-medium">{result.ownerMasked}</span>
                     </div>
                   )}
                   {result.status && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Holati:</span>
+                      <span className="text-slate-400">{L('Holati:', 'Статус:')}</span>
                       <span className="font-bold text-emerald-400 uppercase">
-                        {result.status === 'valid' ? '✓ AKTUAL' : result.status}
+                        {result.status === 'CONFIRMED' ? L('✓ Faol', '✓ Активен') : L('⏳ Nofaol (qarz)', '⏳ Неактивен (долг)')}
                       </span>
                     </div>
                   )}
-                </div>
-
-                <div className="flex items-center gap-2 text-[11px] text-amber-300 font-semibold bg-amber-400/10 p-2 rounded-lg border border-amber-400/20">
-                  <Award className="w-4 h-4 shrink-0" />
-                  <span>Damas va $15,000 bosh sovrin tirajida qatnashadi!</span>
                 </div>
               </div>
             ) : (
@@ -165,10 +162,10 @@ export const TicketVerifyPage: React.FC<TicketVerifyPageProps> = ({
                   <XCircle className="w-7 h-7 text-rose-400 shrink-0" />
                   <div>
                     <h3 className="font-black text-rose-300 text-base">
-                      Bilet Topilmadi
+                      {L('Bilet topilmadi', 'Билет не найден')}
                     </h3>
                     <p className="text-[11px] text-rose-200/80">
-                      {result.message || 'Bunday raqamli bilet topilmadi yoki bekor qilingan.'}
+                      {result.message || L('Bunday bilet topilmadi', 'Такой билет не найден')}
                     </p>
                   </div>
                 </div>

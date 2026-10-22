@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { ClientStats, Language } from '../types';
-import { translations } from '../i18n';
+import { useL, money } from '../i18n/lang';
 import { playTicketChime, triggerHaptic } from '../utils/audio';
 
 interface OilFlaskWidgetProps {
@@ -17,7 +17,7 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
   isLargeText,
   onOpenTicketsModal,
 }) => {
-  const t = translations[language];
+  const L = useL();
   const prevTicketsRef = useRef<number>(stats.tickets);
 
   // Trigger confetti and chime when tickets increment
@@ -53,8 +53,8 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
           className="relative cursor-pointer group shrink-0 active:scale-95 transition-transform"
           role="button"
           tabIndex={0}
-          aria-label={t.ticketsBtn}
-          title="Biletlarni ko'rish"
+          aria-label={L('Biletlarim', 'Мои билеты')}
+          title={L('Biletlarni ko\'rish', 'Посмотреть билеты')}
         >
           <div className="relative w-28 h-36 flex items-center justify-center">
             <svg
@@ -190,14 +190,14 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
             {/* In-canister Ticket Count and Info on the Central Label */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pt-8 text-center pointer-events-none select-none">
               <span className="text-[9px] font-extrabold uppercase tracking-widest text-amber-300 drop-shadow">
-                Biletlar
+                {L('Biletlar', 'Билеты')}
               </span>
               <div className="flex items-baseline justify-center my-0.5">
                 <span className="text-3xl font-black text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] tabular-nums">
                   {stats.tickets}
                 </span>
                 <span className="text-[11px] font-bold text-amber-300 ml-0.5">
-                  ta
+                  {L('ta', 'шт')}
                 </span>
               </div>
               <span className="text-[8.5px] font-extrabold text-amber-200 bg-black/75 px-1.5 py-0.5 rounded-md border border-amber-400/40 tabular-nums">
@@ -211,22 +211,13 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
         <div className="flex-1 min-w-0 space-y-2">
           {/* Shu oy to'langan summa */}
           <div>
-            <span className="text-[11px] text-slate-400 block font-semibold">Shu oy to'lagansiz:</span>
-            <span className="text-xl font-black text-amber-400 tabular-nums">
-              ${Math.round(stats.confirmedAmount || 0).toLocaleString('en-US')}
-            </span>
+            <span className="text-[11px] text-slate-400 block font-semibold">{L('Shu oy to\'lagansiz:', 'Оплачено в этом месяце:')}</span>
+            <span className="text-xl font-black text-amber-400 tabular-nums">{money(stats.confirmedAmount)}</span>
           </div>
 
           {/* Qarz Holati Banneri (Aksiya yangi qoidasi: qarz $0 bo'lsa biletlar AKTUAL!) */}
           <div
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent('usta-moy-speak', {
-                  detail: { topic: stats.isDebtCleared ? 'debt_cleared' : 'debt_warning' },
-                })
-              );
-            }}
-            className={`p-2 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all ${
+            className={`p-2 rounded-xl border flex items-center justify-between gap-2 transition-all ${
               stats.isDebtCleared
                 ? 'bg-emerald-950/70 border-emerald-500/50 hover:bg-emerald-950/90 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
                 : 'bg-rose-950/80 border-rose-500/70 hover:bg-rose-950/95 shadow-[0_0_15px_rgba(244,63,94,0.25)] animate-pulse'
@@ -236,10 +227,10 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
               <span className="text-base shrink-0">{stats.isDebtCleared ? '🛡️' : '⚠️'}</span>
               <div className="min-w-0">
                 <span className={`text-xs font-black block ${stats.isDebtCleared ? 'text-emerald-300' : 'text-rose-200'}`}>
-                  {stats.isDebtCleared ? "Qarzingiz yo'q" :`Qarz: $${Math.round(stats.debtAmount || 0).toLocaleString('en-US')}`}
+                  {stats.isDebtCleared ? L('Qarzingiz yo\'q', 'Долгов нет') : `${L('Qarz', 'Долг')}: ${money(stats.debtAmount)}`}
                 </span>
                 <span className={`text-[11px] block leading-snug ${stats.isDebtCleared ? 'text-emerald-200/80' : 'text-rose-300/90'}`}>
-                  {stats.isDebtCleared ? 'Biletlaringiz faol' : 'Biletlar nofaol — qarzni yoping'}
+                  {stats.isDebtCleared ? L('Biletlaringiz faol', 'Ваши билеты активны') : L('Biletlar nofaol — qarzni yoping', 'Билеты неактивны — погасите долг')}
                 </span>
               </div>
             </div>
@@ -248,8 +239,8 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
           {/* Keyingi biletga qolgan summa va progress */}
           <div className="bg-[#090D17]/80 rounded-xl p-2 sm:p-2.5 border border-white/10 space-y-1.5">
             <div className="text-xs text-slate-300">
-              Keyingi biletgacha:{' '}
-              <b className="text-amber-400 tabular-nums">${Math.round(stats.gapToNextTicket || 0).toLocaleString('en-US')}</b>
+              {L('Keyingi biletgacha:', 'До следующего билета:')}{' '}
+              <b className="text-amber-400 tabular-nums">{money(stats.gapToNextTicket)}</b>
             </div>
 
             {/* Visual Progress Bar */}
@@ -262,7 +253,7 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
 
             <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium tabular-nums">
               <span>${Math.round(remainder)} / $1,000</span>
-              <span>$1,000 = 1 bilet</span>
+              <span>{L('$1,000 = 1 bilet', '$1,000 = 1 билет')}</span>
             </div>
           </div>
 
@@ -284,21 +275,25 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
               <span className="truncate block text-xs font-bold text-rose-100">
                 {stats.isLastDayOfMonth ? (
                   <>
-                    <strong className="text-white font-black underline decoration-amber-400">Bugun 23:59 da</strong> ${remainder} qoldiq kuyadi!
+                    <strong className="text-white font-black underline decoration-amber-400">{L('Bugun 23:59 da', 'Сегодня в 23:59')}</strong>{' '}
+                    {L(`${money(remainder)} qoldiq kuyadi!`, `сгорит остаток ${money(remainder)}!`)}
                   </>
                 ) : (
                   <>
-                    Oy oxirida <strong className="text-white font-extrabold">${remainder}</strong> qoldiq kuyadi!
+                    {L('Oy oxirida', 'В конце месяца')} <strong className="text-white font-extrabold">{money(remainder)}</strong>{' '}
+                    {L('qoldiq kuyadi!', 'остатка сгорит!')}
                   </>
                 )}
               </span>
               <span className="text-[10px] text-amber-300/90 block">
-                Biletga aylantirishga ulgurib qoling
+                {L('Biletga aylantirishga ulgurib qoling', 'Успейте превратить его в билет')}
               </span>
             </div>
           </div>
           <span className="shrink-0 text-[10px] font-black text-amber-300 bg-black/70 px-2 py-1 rounded-lg border border-amber-400/40 shadow-inner">
-            {stats.timeRemainingLabel || `${stats.daysRemainingInMonth} kun qoldi`}
+            {stats.isLastDayOfMonth
+              ? L(`${stats.hoursRemainingInMonth} soat qoldi`, `осталось ${stats.hoursRemainingInMonth} ч`)
+              : L(`${stats.daysRemainingInMonth} kun qoldi`, `осталось ${stats.daysRemainingInMonth} дн.`)}
           </span>
         </div>
       )}

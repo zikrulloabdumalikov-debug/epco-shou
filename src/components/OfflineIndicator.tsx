@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { useL } from '../i18n/lang';
 
 export const OfflineIndicator: React.FC = () => {
+  const L = useL();
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -23,7 +25,7 @@ export const OfflineIndicator: React.FC = () => {
   return (
     <div className="fixed top-14 left-4 right-4 z-50 flex items-center justify-center gap-2 rounded-2xl bg-[#FF4D63] px-3 py-2 text-xs font-bold text-white shadow-xl animate-in slide-in-from-top-2">
       <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-      <span>Oflayn rejim — keshdagi ma'lumotlar ko'rsatilmoqda</span>
+      <span>{L('Internet yo\'q — oxirgi saqlangan ma\'lumot ko\'rsatilmoqda', 'Нет интернета — показаны сохранённые данные')}</span>
     </div>
   );
 };

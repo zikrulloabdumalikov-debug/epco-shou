@@ -1,16 +1,15 @@
 import React from 'react';
-import { ClientStats, Language, PromoConfig } from '../types';
+import { ClientStats, PromoConfig } from '../types';
+import { useL, money } from '../i18n/lang';
 
 interface ProbabilityCardProps {
   stats: ClientStats;
   config?: PromoConfig;
-  language: Language;
   isLargeText?: boolean;
 }
 
-const money = (n: number) => `$${Math.round(n || 0).toLocaleString('en-US')}`;
-
 export const ProbabilityCard: React.FC<ProbabilityCardProps> = ({ stats, config, isLargeText }) => {
+  const L = useL();
   const K = config?.totalShowWinners || 30;
   const pool = config?.totalConfirmedTicketsPool || 0;
   const active = stats.activeTicketsCount || 0;
@@ -21,14 +20,17 @@ export const ProbabilityCard: React.FC<ProbabilityCardProps> = ({ stats, config,
   return (
     <section className="glass-card p-4 sm:p-5 rounded-3xl border border-white/15 space-y-4">
       <div>
-        <h3 className={`font-black text-white ${isLargeText ? 'text-lg' : 'text-base'}`}>🎯 Jonli shouga chiqish imkoniyati</h3>
+        <h3 className={`font-black text-white ${isLargeText ? 'text-lg' : 'text-base'}`}>
+          🎯 {L('Jonli shouga chiqish imkoniyati', 'Шанс попасть на шоу')}
+        </h3>
         <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-          Oy oxirida barcha faol biletlar orasidan <b className="text-white">{K} ta bilet</b> tasodifiy tanlanadi va egalari jonli
-          shouga taklif qilinadi.
+          {L(
+            `Oy oxirida barcha faol biletlar orasidan ${K} ta bilet tasodifiy tanlanadi va egalari jonli shouga taklif qilinadi.`,
+            `В конце месяца среди всех активных билетов случайно выбирают ${K} билетов — их владельцев приглашают на шоу.`
+          )}
         </p>
       </div>
 
-      {/* Asosiy ko'rsatkich */}
       <div className="flex items-center gap-4">
         <div className="relative w-24 h-24 shrink-0">
           <svg viewBox="0 0 36 36" className="w-24 h-24 -rotate-90">
@@ -52,14 +54,14 @@ export const ProbabilityCard: React.FC<ProbabilityCardProps> = ({ stats, config,
         </div>
         <div className="space-y-1.5 text-sm min-w-0">
           <div>
-            Faol biletlaringiz: <b className="text-white tabular-nums">{active} ta</b>
+            {L('Faol biletlaringiz:', 'Ваши активные билеты:')} <b className="text-white tabular-nums">{active}</b>
           </div>
           <div className="text-slate-300">
-            Barcha faol biletlar: <b className="text-white tabular-nums">{pool} ta</b>
+            {L('Barcha faol biletlar:', 'Всего активных билетов:')} <b className="text-white tabular-nums">{pool}</b>
           </div>
           {stats.isDebtCleared && (
             <div className="text-emerald-300">
-              Yana 1 bilet bilan: <b className="tabular-nums">{Math.round(nextPercent)}%</b>
+              {L('Yana 1 bilet bilan:', 'С ещё 1 билетом:')} <b className="tabular-nums">{Math.round(nextPercent)}%</b>
             </div>
           )}
         </div>
@@ -67,16 +69,20 @@ export const ProbabilityCard: React.FC<ProbabilityCardProps> = ({ stats, config,
 
       {everyoneInvited && stats.isDebtCleared && active > 0 && (
         <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 leading-relaxed">
-          Hozircha faol biletlar {K} tadan kam — har bir faol bilet egasi shouga taklif qilinadi. Bilet qo'shilgan sari
-          raqobat oshadi.
+          {L(
+            `Hozircha faol biletlar ${K} tadan kam — har bir faol bilet egasi shouga taklif qilinadi. Bilet qo'shilgan sari raqobat oshadi.`,
+            `Пока активных билетов меньше ${K} — приглашают каждого владельца активного билета. С ростом числа билетов конкуренция растёт.`
+          )}
         </div>
       )}
 
       {!stats.isDebtCleared && (
         <div className="p-3 rounded-2xl bg-rose-950/70 border border-rose-500/50 text-sm text-rose-100 leading-relaxed">
-          ⚠️ Qarzingiz <b>{money(stats.debtAmount)}</b> bo'lgani uchun {stats.tickets} ta biletingiz hozircha
-          <b> nofaol</b>. Qarzni yopsangiz, biletlar darhol faollashadi va imkoniyatingiz{' '}
-          <b className="text-emerald-300">{Math.round(stats.probIfDebtCleared || 0)}%</b> bo'ladi.
+          ⚠️{' '}
+          {L(
+            `Qarzingiz ${money(stats.debtAmount)} bo'lgani uchun ${stats.tickets} ta biletingiz hozircha nofaol. Qarzni yopsangiz, biletlar darhol faollashadi va imkoniyatingiz ${Math.round(stats.probIfDebtCleared || 0)}% bo'ladi.`,
+            `Из-за долга ${money(stats.debtAmount)} ваши билеты (${stats.tickets}) пока неактивны. Погасите долг — билеты сразу активируются, и шанс составит ${Math.round(stats.probIfDebtCleared || 0)}%.`
+          )}
         </div>
       )}
     </section>

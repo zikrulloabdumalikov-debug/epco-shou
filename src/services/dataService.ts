@@ -46,15 +46,6 @@ class DataService {
     return isDemoMode() ? null : apiService.getCachedBootstrap();
   }
 
-  async updateConsent(consent: boolean): Promise<boolean> {
-    if (isDemoMode()) {
-      DEMO_USER.isAnonymous = !consent;
-      return true;
-    }
-    const res = await apiService.updateConsent(consent);
-    return res.success;
-  }
-
   async logout(): Promise<void> {
     await apiService.logout();
   }

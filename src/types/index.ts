@@ -21,9 +21,12 @@ export interface User {
 export interface PromoConfig {
   totalShowWinners: number; // K = 30
   totalConfirmedTicketsPool: number; // T (e.g. 6000)
-  totalPrizePoolUsd: number; // $15,000
+  totalPrizePoolUsd?: number;
   grandPrize: string; // "Chevrolet DAMAS"
-  firstPlacePrize: string; // "iPhone 18 Pro Max"
+  prizesText?: string; // admin paneldan: boshqa sovg'alar tavsifi
+  prizesTextRu?: string;
+  liveUrl?: string; // admin paneldan: jonli efir / video (YouTube)
+  firstPlacePrize?: string;
   prizeScope: 'league' | 'region' | 'republic';
   startDate: string;
   endDate: string;
@@ -83,6 +86,7 @@ export interface ClientStats {
 export type BootstrapData =
   | {
       registered: true;
+      isAdmin?: boolean;
       user: User;
       stats: ClientStats;
       config: PromoConfig;
@@ -92,6 +96,7 @@ export type BootstrapData =
     }
   | {
       registered: false;
+      isAdmin?: boolean;
       phone: string;
       supportPhone: string;
       leadSubmitted: boolean;

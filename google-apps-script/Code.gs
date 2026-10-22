@@ -2,7 +2,7 @@
  * EPCO – KATTA ROZIG'ISH SHOU (Production Backend)
  * Google Apps Script Web App & Telegram Bot
  *
- * Versiya: 2.3.0. Mijozlar "Ustalar" varag'idan o'qiladi; "Ulanishlar" va
+ * Versiya: 2.4.0 (admin panel, ommaviy xabarlar). Mijozlar "Ustalar" varag'idan o'qiladi; "Ulanishlar" va
  * "Yangi_mijozlar" varaqlari avtomatik yaratiladi.
  *
  * 2.2.0 xavfsizlik: kirish faqat Telegram botdagi 6 xonali kod yoki imzosi
@@ -22,7 +22,6 @@ var TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 var DEFAULTS = {
   DEBT_TOLERANCE: 0,               // Qarz shu summadan oshmasa "qarzsiz"
   DEBTORS_IN_RANKING: true,        // Qarzdorlar reytingda ko'rinadimi
-  DEBTORS_ELIGIBLE_FOR_TOP1: false,// Qarzdor iPhone 18 Pro Max oladimi
   TICKET_PRICE: 1000,              // Har $1,000 = 1 bilet
   SHOW_WINNERS_K: 30,              // Jonli shouga 30 ta bilet tasodifiy tanlanadi
   TIMEZONE: "Asia/Tashkent",       // Server vaqt mintaqasi
@@ -30,9 +29,11 @@ var DEFAULTS = {
   RULES_VIDEO_URL: "",
   PROMO_START: "2026-10-01",
   PROMO_END: "2027-02-28",
-  TOTAL_PRIZE_POOL_USD: 15000,
+  // Quyidagi uchtasini admin paneldan o'zgartirish mumkin (Script Properties: set_*)
   GRAND_PRIZE: "Chevrolet DAMAS",
-  FIRST_PLACE_PRIZE: "iPhone 18 Pro Max",
+  PRIZES_TEXT: "1 500$ gacha qiymatdagi turli sovg'alar va pul mukofotlari",
+  PRIZES_TEXT_RU: "Подарки и денежные призы стоимостью до 1 500$",
+  LIVE_URL: "",
   BOT_USERNAME: "epcoaksiya_bot"
 };
 
@@ -48,6 +49,11 @@ function getConfig() {
     if (props.WEBHOOK_SECRET) config.WEBHOOK_SECRET = props.WEBHOOK_SECRET;
     if (props.ADMIN_CHAT_ID) config.ADMIN_CHAT_ID = props.ADMIN_CHAT_ID;
     if (props.WEBAPP_URL) config.WEBAPP_URL = props.WEBAPP_URL;
+    if (props.ADMIN_PHONES) config.ADMIN_PHONES = props.ADMIN_PHONES;
+    if (props.set_grand_prize) config.GRAND_PRIZE = props.set_grand_prize;
+    if (props.set_prizes_text) config.PRIZES_TEXT = props.set_prizes_text;
+    if (props.set_prizes_text_ru) config.PRIZES_TEXT_RU = props.set_prizes_text_ru;
+    if (props.set_live_url !== undefined) config.LIVE_URL = props.set_live_url;
   } catch (e) {
     Logger.log("Sozlamalarni o'qishda xatolik: " + e.message);
   }
@@ -106,8 +112,8 @@ function doPost(e) {
     var action = data.action || "";
     var token = data.token || "";
     var phoneKey = null;
-    var needsAuth = ["bootstrap", "me", "tickets", "consent.update", "lead.submit"];
-    if (needsAuth.indexOf(action) !== -1) {
+    var needsAuth = ["bootstrap", "me", "tickets", "lead.submit"];
+    if (needsAuth.indexOf(action) !== -1 || action.indexOf("admin.") === 0) {
       phoneKey = getPhoneFromToken(token);
       if (!phoneKey) {
         return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Sessiya muddati tugagan. Iltimos, qayta kiring." });
@@ -151,10 +157,6 @@ function doPost(e) {
         responseData = handleGetTickets(phoneKey);
         break;
 
-      case "consent.update":
-        responseData = handleUpdateConsent(phoneKey, Boolean(data.consent));
-        break;
-
       // Bazada yo'q yangi mijoz anketasi
       case "lead.submit":
         responseData = handleSubmitLead(phoneKey, data.lead || {});
@@ -169,6 +171,13 @@ function doPost(e) {
         break;
 
       default:
+        if (action.indexOf("admin.") === 0) {
+          if (!isAdminPhone(phoneKey)) {
+            return createJsonResponse(false, null, { code: "FORBIDDEN", message: "Bu bo'lim faqat administratorlar uchun" });
+          }
+          responseData = handleAdminAction(action, data, phoneKey);
+          break;
+        }
         return createJsonResponse(false, null, { code: "UNKNOWN_ACTION", message: "Noma'lum amal: " + action });
     }
 
@@ -398,7 +407,7 @@ function refreshMastersCache() {
 function onEdit(e) {
   try {
     var name = e && e.range ? e.range.getSheet().getName() : "";
-    if (name === ACTIVITY_SHEET || name === LEADS_SHEET) return;
+    if ([ACTIVITY_SHEET, LEADS_SHEET, WINNERS_SHEET, BROADCAST_SHEET, POLL_SHEET].indexOf(name) !== -1) return;
     CacheService.getScriptCache().remove(MASTERS_CACHE_KEY + "_n");
   } catch (err) {}
 }
@@ -464,19 +473,11 @@ function loadAndAggregateMasters() {
 }
 
 /**
- * Ismni niqoblash (maxfiylik)
+ * Reyting va biletlarda mijoz ismi ochiq ko'rsatiladi (aksiya egasining qarori).
+ * Telefon raqami va to'lov summalari esa boshqalarga yuborilmaydi.
  */
-function maskClientName(name, region, consent) {
-  if (consent) {
-    return name || "Usta";
-  }
-  var cleanName = (name || "Usta").trim();
-  var firstLetter = cleanName.charAt(0).toUpperCase();
-  var regPrefix = region ? (region.split(" ")[0] || "") : "";
-  if (regPrefix) {
-    return regPrefix + " · " + firstLetter + "***";
-  }
-  return firstLetter + "***";
+function displayName(name) {
+  return String(name || "Usta").trim();
 }
 
 /**
@@ -511,9 +512,10 @@ function buildPromoConfig(dataObj, config) {
   return {
     totalShowWinners: config.SHOW_WINNERS_K,
     totalConfirmedTicketsPool: dataObj.totalActiveTickets,
-    totalPrizePoolUsd: config.TOTAL_PRIZE_POOL_USD,
     grandPrize: config.GRAND_PRIZE,
-    firstPlacePrize: config.FIRST_PLACE_PRIZE,
+    prizesText: config.PRIZES_TEXT,
+    prizesTextRu: config.PRIZES_TEXT_RU,
+    liveUrl: config.LIVE_URL,
     prizeScope: "republic",
     startDate: config.PROMO_START,
     endDate: config.PROMO_END,
@@ -523,7 +525,7 @@ function buildPromoConfig(dataObj, config) {
     isLastDayOfMonth: timing.isLastDay,
     timeRemainingLabel: timing.label,
     currentDateFormatted: timing.dateFormatted,
-    rulesVideoUrl: config.RULES_VIDEO_URL,
+    rulesVideoUrl: config.LIVE_URL || config.RULES_VIDEO_URL,
     supportPhone: config.SUPPORT_PHONE,
     serverNow: new Date().toISOString(),
     thresholds: thresholds
@@ -590,27 +592,25 @@ function buildClientStats(master, dataObj, config) {
 }
 
 function buildUser(master, props) {
-  var consent = props["consent_" + master.phoneKey] === "true";
   return {
     id: "usr_" + master.phoneKey,
     phone: master.phoneFormatted,
     name: master.name,
-    maskedName: maskClientName(master.name, master.region, consent),
+    maskedName: displayName(master.name),
     segment: "station",
     leagueTier: master.paidAmount >= 5000 ? "gold" : (master.paidAmount >= 2000 ? "silver" : "bronze"),
     region: master.region,
-    isAnonymous: !consent,
+    isAnonymous: false,
     telegramId: props["tg_chat_" + master.phoneKey] || "",
     growthPercent: 0
   };
 }
 
 function buildLeaderboardEntry(c, rank, myPhoneKey, props) {
-  var consent = props["consent_" + c.phoneKey] === "true";
   return {
     id: "lb_" + rank + "_" + (c.phoneKey === myPhoneKey ? "me" : rank),
     rank: rank,
-    maskedName: maskClientName(c.name, c.region, consent),
+    maskedName: displayName(c.name),
     segment: "station",
     region: c.region,
     tickets: c.activeTickets,
@@ -653,9 +653,11 @@ function handleBootstrap(phoneKey) {
 
   recordActivity(phoneKey, "active");
 
+  var isAdmin = isAdminPhone(phoneKey);
   if (!master) {
     return {
       registered: false,
+      isAdmin: isAdmin,
       phone: formatPhoneUz(phoneKey),
       supportPhone: config.SUPPORT_PHONE,
       leadSubmitted: Boolean(props["lead_" + phoneKey]),
@@ -665,6 +667,7 @@ function handleBootstrap(phoneKey) {
 
   return {
     registered: true,
+    isAdmin: isAdmin,
     user: buildUser(master, props),
     stats: buildClientStats(master, dataObj, config),
     config: buildPromoConfig(dataObj, config),
@@ -736,14 +739,9 @@ function handleGetTickets(phoneKey) {
 }
 
 function handleGetWinners() {
-  return { winners: [] };
+  return { winners: readWinners() };
 }
 
-function handleUpdateConsent(phoneKey, consent) {
-  var props = PropertiesService.getScriptProperties();
-  props.setProperty("consent_" + phoneKey, consent ? "true" : "false");
-  return { success: true, consent: consent };
-}
 
 function handleVerifyTicket(ticketNumber) {
   var number = String(ticketNumber || "").trim().toUpperCase();
@@ -767,7 +765,7 @@ function handleVerifyTicket(ticketNumber) {
     ticketNumber: number,
     month: getCurrentMonth(),
     status: master.isDebtCleared ? "CONFIRMED" : "PENDING_DEBT",
-    ownerMasked: maskClientName(master.name, master.region, false),
+    ownerMasked: displayName(master.name),
     message: master.isDebtCleared ? "Haqiqiy va faol aksiya bileti" : "Haqiqiy bilet, lekin egasining qarzi yopilmagani uchun hozircha nofaol"
   };
 }
@@ -833,6 +831,453 @@ function handleSubmitLead(phoneKey, lead) {
   }
 
   return { submitted: true, supportPhone: config.SUPPORT_PHONE };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5.2 ADMIN PANEL: g'oliblar, sozlamalar, statistika, ommaviy xabarlar
+// Adminlar: Script Properties → ADMIN_PHONES = "+998901234567, +998911112233"
+// ═══════════════════════════════════════════════════════════════════════════
+
+var WINNERS_SHEET = "Goliblar";
+var WINNER_HEADERS = ["ID", "Oy", "Telefon", "Ism", "Hudud", "Sovg'a", "Video (YouTube)", "Qo'shilgan"];
+var BROADCAST_SHEET = "Xabarlar";
+var BROADCAST_HEADERS = ["ID", "Sana", "Admin", "Turi", "Matn", "Kimga", "Jami", "Yuborildi", "Xato", "Holat", "Sozlama", "Qabul qiluvchilar"];
+var BC_COL = { TOTAL: 7, SENT: 8, FAILED: 9, STATUS: 10, PAYLOAD: 11, RECIPIENTS: 12 };
+var POLL_SHEET = "Sorovnoma_javoblari";
+var POLL_HEADERS = ["Sana", "So'rovnoma", "Telefon", "Mijoz", "Hudud", "Telegram", "Javob"];
+var BROADCAST_BATCH = 25;               // Telegram: soniyasiga ~30 ta xabar
+var RECIPIENTS_CELL_CHARS = 45000;      // Bitta katak 50 000 belgidan oshmasin
+var BROADCAST_STATUS = { QUEUED: "Navbatda", SENDING: "Yuborilmoqda", DONE: "Yuborildi" };
+
+function isAdminPhone(phoneKey) {
+  if (!phoneKey) return false;
+  // Faqat vergul/nuqtali vergul bilan ajratiladi — raqam ichida bo'sh joy bo'lishi mumkin
+  var list = String(getConfig().ADMIN_PHONES || "").split(/[,;\n]+/);
+  for (var i = 0; i < list.length; i++) {
+    if (normalizePhoneKey(list[i]) === phoneKey) return true;
+  }
+  return false;
+}
+
+function getOrCreateSheet(name, headers, textColumns) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(name);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(name, ss.getSheets().length);
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setFontWeight("bold").setBackground("#06154A").setFontColor("#FBBF24");
+  sheet.setFrozenRows(1);
+  (textColumns || []).forEach(function(col) { sheet.getRange(col + ":" + col).setNumberFormat("@"); });
+  return sheet;
+}
+
+function isYoutubeUrl(url) {
+  return /^https:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\/\S+$/i.test(String(url || ""));
+}
+
+function handleAdminAction(action, data, adminPhone) {
+  switch (action) {
+    case "admin.overview": return adminOverview();
+    case "admin.settings.update": return adminUpdateSettings(data.settings || {});
+    case "admin.winner.add": return adminAddWinner(data.winner || {});
+    case "admin.winner.delete": return adminDeleteWinner(data.id);
+    case "admin.broadcast.preview": return { count: resolveRecipients(data.target || {}).length };
+    case "admin.broadcast.create": return adminCreateBroadcast(data.broadcast || {}, adminPhone);
+    case "admin.broadcast.list": return { broadcasts: listBroadcasts(20) };
+    default: throw new Error("Noma'lum admin amali: " + action);
+  }
+}
+
+function adminOverview() {
+  var config = getConfig();
+  var dataObj = loadAndAggregateMasters();
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var linked = Object.keys(props).filter(function(k) { return k.indexOf("tg_chat_") === 0; }).length;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var activeToday = 0;
+  var activity = ss.getSheetByName(ACTIVITY_SHEET);
+  if (activity && activity.getLastRow() >= 2) {
+    var startOfDay = new Date(Utilities.formatDate(new Date(), DEFAULTS.TIMEZONE, "yyyy-MM-dd") + "T00:00:00+05:00").getTime();
+    activity.getRange(2, ACTIVITY_COL.ACTIVE, activity.getLastRow() - 1, 1).getValues().forEach(function(r) {
+      if (r[0] instanceof Date && r[0].getTime() >= startOfDay) activeToday++;
+    });
+  }
+
+  var leads = [];
+  var leadsTotal = 0;
+  var leadsSheet = ss.getSheetByName(LEADS_SHEET);
+  if (leadsSheet && leadsSheet.getLastRow() >= 2) {
+    leadsTotal = leadsSheet.getLastRow() - 1;
+    var from = Math.max(2, leadsSheet.getLastRow() - 9);
+    leads = leadsSheet.getRange(from, 1, leadsSheet.getLastRow() - from + 1, 7).getValues().reverse().map(function(r) {
+      return {
+        date: r[0] instanceof Date ? r[0].toISOString() : String(r[0]),
+        phone: String(r[1]), name: String(r[2]), activity: String(r[3]), region: String(r[5])
+      };
+    });
+  }
+
+  var regions = Object.keys(dataObj.regionTotals).sort();
+  return {
+    mastersTotal: dataObj.clientList.length,
+    linkedTotal: linked,
+    activeToday: activeToday,
+    leadsTotal: leadsTotal,
+    recentLeads: leads,
+    regions: regions,
+    settings: settingsOf(config),
+    winners: readWinners(),
+    broadcasts: listBroadcasts(10)
+  };
+}
+
+function adminUpdateSettings(settings) {
+  var props = PropertiesService.getScriptProperties();
+  var grand = String(settings.grandPrize || "").trim().slice(0, 100);
+  var prizes = String(settings.prizesText || "").trim().slice(0, 300);
+  var prizesRu = String(settings.prizesTextRu || "").trim().slice(0, 300);
+  var live = String(settings.liveUrl || "").trim();
+  if (live && !isYoutubeUrl(live)) throw new Error("Video havolasi YouTube manzili bo'lishi kerak");
+  if (grand) props.setProperty("set_grand_prize", grand);
+  if (prizes) props.setProperty("set_prizes_text", prizes);
+  if (prizesRu) props.setProperty("set_prizes_text_ru", prizesRu);
+  props.setProperty("set_live_url", live);
+  return { settings: settingsOf(getConfig()) };
+}
+
+function settingsOf(config) {
+  return { grandPrize: config.GRAND_PRIZE, prizesText: config.PRIZES_TEXT, prizesTextRu: config.PRIZES_TEXT_RU, liveUrl: config.LIVE_URL };
+}
+
+// ── G'oliblar ──────────────────────────────────────────────────────────────
+
+function readWinners() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(WINNERS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, WINNER_HEADERS.length).getValues()
+    .filter(function(r) { return r[0] !== "" && r[3] !== ""; })
+    .map(function(r) {
+      return {
+        id: String(r[0]),
+        month: String(r[1]),
+        winnerName: String(r[3]),
+        region: String(r[4]),
+        prize: String(r[5]),
+        ticketsHeld: 0,
+        videoUrl: String(r[6] || "")
+      };
+    })
+    .reverse();
+}
+
+function adminAddWinner(w) {
+  var phoneKey = normalizePhoneKey(w.phone);
+  var master = phoneKey ? loadAndAggregateMasters().clientsMap[phoneKey] : null;
+  var name = String(w.name || (master && master.name) || "").trim();
+  var region = String(w.region || (master && master.region) || "").trim();
+  var prize = String(w.prize || "").trim();
+  var month = String(w.month || "").trim() || getMonthTiming().monthName;
+  var video = String(w.videoUrl || "").trim();
+
+  if (!name) throw new Error("G'olib ismini yoki bazadagi telefon raqamini kiriting");
+  if (!prize) throw new Error("Sovg'ani kiriting");
+  if (video && !isYoutubeUrl(video)) throw new Error("Video havolasi YouTube manzili bo'lishi kerak");
+
+  var sheet = getOrCreateSheet(WINNERS_SHEET, WINNER_HEADERS, ["A", "C"]);
+  var id = "W" + Date.now();
+  sheet.appendRow([id, sheetText(month, 40), phoneKey ? formatPhoneUz(phoneKey) : "", sheetText(name, 100),
+    sheetText(region, 60), sheetText(prize, 120), sheetText(video, 200), new Date()]);
+
+  var notified = false;
+  if (w.notify && phoneKey) {
+    var chatId = PropertiesService.getScriptProperties().getProperty("tg_chat_" + phoneKey);
+    if (chatId) {
+      notified = telegramApi("sendMessage", {
+        chat_id: chatId,
+        text: "🎉 Tabriklaymiz, " + name + "!\n\nSiz EPCO Katta Rozig'ish Shou'ning " + month + " g'olibisiz.\n🎁 Sovg'a: " + prize +
+          (video ? "\n\n▶️ Video: " + video : "") + "\n\nSovg'ani olish bo'yicha menejerimiz siz bilan bog'lanadi."
+      }) !== null;
+    }
+  }
+  return { winners: readWinners(), notified: notified };
+}
+
+function adminDeleteWinner(id) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(WINNERS_SHEET);
+  if (sheet && sheet.getLastRow() >= 2) {
+    var ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(id)) {
+        sheet.deleteRow(i + 2);
+        break;
+      }
+    }
+  }
+  return { winners: readWinners() };
+}
+
+// ── Telegram yordamchilari ────────────────────────────────────────────────
+
+/**
+ * Telegram Bot API chaqiruvi. Muvaffaqiyatli bo'lsa "result", aks holda null.
+ */
+function telegramApi(method, payload, isMultipart) {
+  var config = getConfig();
+  if (!config.BOT_TOKEN) return null;
+  try {
+    var options = { method: "post", muteHttpExceptions: true };
+    if (isMultipart) {
+      options.payload = payload;
+    } else {
+      options.contentType = "application/json";
+      options.payload = JSON.stringify(payload);
+    }
+    var response = UrlFetchApp.fetch("https://api.telegram.org/bot" + config.BOT_TOKEN + "/" + method, options);
+    var json = JSON.parse(response.getContentText());
+    if (!json.ok) {
+      Logger.log("Telegram " + method + " xatolik: " + response.getContentText());
+      return null;
+    }
+    return json.result;
+  } catch (e) {
+    Logger.log("Telegram " + method + " xatolik: " + e.message);
+    return null;
+  }
+}
+
+// ── Ommaviy xabarlar ──────────────────────────────────────────────────────
+
+/**
+ * target: { type: "all" | "registered" | "new" | "region" | "phone", value?: string }
+ * Natija: botga ulangan va shartga mos mijozlarning chat ID lari
+ */
+function resolveRecipients(target) {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var type = target.type || "all";
+  var clients = type === "all" ? null : loadAndAggregateMasters().clientsMap;
+  var wantedPhone = type === "phone" ? normalizePhoneKey(target.value) : null;
+  var seen = {};
+  var result = [];
+
+  Object.keys(props).forEach(function(key) {
+    if (key.indexOf("tg_chat_") !== 0) return;
+    var phoneKey = key.slice(8);
+    var chatId = props[key];
+    if (!chatId || seen[chatId]) return;
+    var master = clients ? clients[phoneKey] : null;
+    var ok = type === "all" ||
+      (type === "registered" && master) ||
+      (type === "new" && !master) ||
+      (type === "region" && master && master.region === target.value) ||
+      (type === "phone" && phoneKey === wantedPhone);
+    if (ok) {
+      seen[chatId] = true;
+      result.push(chatId);
+    }
+  });
+  return result;
+}
+
+function describeTarget(target) {
+  switch (target.type) {
+    case "registered": return "Bazadagi mijozlar";
+    case "new": return "Yangi (bazada yo'q)";
+    case "region": return "Viloyat: " + target.value;
+    case "phone": return "Raqam: " + formatPhoneUz(normalizePhoneKey(target.value) || "");
+    default: return "Hammaga";
+  }
+}
+
+function buildInlineButton(b) {
+  var text = String(b.buttonText || "").trim();
+  var url = String(b.buttonUrl || "").trim();
+  if (!text || !url) return null;
+  if (!/^https:\/\//i.test(url)) throw new Error("Tugma havolasi https:// bilan boshlanishi kerak");
+  return { inline_keyboard: [[{ text: text.slice(0, 40), url: url }]] };
+}
+
+/**
+ * Xabarni navbatga qo'yadi. Rasm va so'rovnoma avval adminning o'z chatiga yuboriladi:
+ * rasm Telegram'ga bir marta yuklanadi (file_id), so'rovnoma esa hammaga forward qilinadi —
+ * shunda barcha javoblar bitta so'rovnomaga tushadi va "Sorovnoma_javoblari" ga yoziladi.
+ */
+function adminCreateBroadcast(b, adminPhone) {
+  var kind = b.kind || "text";
+  var text = String(b.text || "").trim();
+  var target = b.target || { type: "all" };
+  var payload = { kind: kind };
+  var replyMarkup = buildInlineButton(b);
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+
+  var recipients = resolveRecipients(target);
+  if (!recipients.length) throw new Error("Tanlangan guruhda botga ulangan mijoz yo'q");
+
+  var props = PropertiesService.getScriptProperties();
+  var adminChat = props.getProperty("tg_chat_" + adminPhone);
+
+  if (kind === "text") {
+    if (!text) throw new Error("Xabar matnini kiriting");
+    payload.text = text.slice(0, 4000);
+  } else if (kind === "photo") {
+    if (!b.imageBase64) throw new Error("Rasm tanlang");
+    if (!adminChat) throw new Error("Rasm yuborish uchun admin raqamingizni botga ulang (botda «Kontaktni ulashish»)");
+    var base64 = String(b.imageBase64).replace(/^data:image\/\w+;base64,/, "");
+    var blob = Utilities.newBlob(Utilities.base64Decode(base64), "image/jpeg", "elon.jpg");
+    var sentPhoto = telegramApi("sendPhoto", { chat_id: adminChat, photo: blob, caption: text.slice(0, 1000) }, true);
+    if (!sentPhoto || !sentPhoto.photo) throw new Error("Rasmni Telegram'ga yuklab bo'lmadi");
+    payload.fileId = sentPhoto.photo[sentPhoto.photo.length - 1].file_id;
+    payload.caption = text.slice(0, 1000);
+  } else if (kind === "poll") {
+    var question = String(b.pollQuestion || text).trim().slice(0, 300);
+    var options = (b.pollOptions || []).map(function(o) { return String(o || "").trim().slice(0, 100); })
+      .filter(function(o) { return o; });
+    if (!question) throw new Error("So'rovnoma savolini kiriting");
+    if (options.length < 2 || options.length > 10) throw new Error("So'rovnomada 2 tadan 10 tagacha javob varianti bo'lishi kerak");
+    if (!adminChat) throw new Error("So'rovnoma yuborish uchun admin raqamingizni botga ulang (botda «Kontaktni ulashish»)");
+    var pollMsg = telegramApi("sendPoll", {
+      chat_id: adminChat, question: question, options: options.map(function(o) { return { text: o }; }),
+      is_anonymous: false, allows_multiple_answers: Boolean(b.pollMultiple)
+    });
+    if (!pollMsg || !pollMsg.poll) throw new Error("So'rovnomani yaratib bo'lmadi");
+    payload.fromChatId = adminChat;
+    payload.messageId = pollMsg.message_id;
+    text = question;
+    props.setProperty("poll_" + pollMsg.poll.id, JSON.stringify({ question: question, options: options }));
+    delete payload.reply_markup; // so'rovnomaga tugma qo'shilmaydi
+  } else {
+    throw new Error("Noma'lum xabar turi");
+  }
+
+  var sheet = getOrCreateSheet(BROADCAST_SHEET, BROADCAST_HEADERS, ["A"]);
+  var id = "B" + Date.now();
+  var recipientsJson = JSON.stringify(recipients);
+  var chunks = [];
+  for (var i = 0; i < recipientsJson.length; i += RECIPIENTS_CELL_CHARS) {
+    chunks.push(recipientsJson.substr(i, RECIPIENTS_CELL_CHARS));
+  }
+  var kindLabel = kind === "photo" ? "Rasm" : (kind === "poll" ? "So'rovnoma" : "Matn");
+  sheet.appendRow([id, new Date(), formatPhoneUz(adminPhone), kindLabel, sheetText(text, 500), describeTarget(target),
+    recipients.length, 0, 0, BROADCAST_STATUS.QUEUED, JSON.stringify(payload)].concat(chunks));
+
+  // Kichik guruhlarga darhol yuboriladi; qolgani har daqiqalik trigger bilan davom etadi
+  processBroadcasts(20000);
+  return { broadcasts: listBroadcasts(10) };
+}
+
+function listBroadcasts(limit) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BROADCAST_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var from = Math.max(2, sheet.getLastRow() - limit + 1);
+  return sheet.getRange(from, 1, sheet.getLastRow() - from + 1, BC_COL.STATUS).getValues().reverse().map(function(r) {
+    return {
+      id: String(r[0]),
+      date: r[1] instanceof Date ? r[1].toISOString() : String(r[1]),
+      kind: String(r[3]),
+      text: String(r[4]).slice(0, 120),
+      target: String(r[5]),
+      total: Number(r[6]) || 0,
+      sent: Number(r[7]) || 0,
+      failed: Number(r[8]) || 0,
+      status: String(r[9])
+    };
+  });
+}
+
+function broadcastRequest(payload, chatId) {
+  if (payload.kind === "photo") {
+    var photo = { chat_id: chatId, photo: payload.fileId, caption: payload.caption || "" };
+    if (payload.reply_markup) photo.reply_markup = payload.reply_markup;
+    return { method: "sendPhoto", body: photo };
+  }
+  if (payload.kind === "poll") {
+    return { method: "forwardMessage", body: { chat_id: chatId, from_chat_id: payload.fromChatId, message_id: payload.messageId } };
+  }
+  var msg = { chat_id: chatId, text: payload.text };
+  if (payload.reply_markup) msg.reply_markup = payload.reply_markup;
+  return { method: "sendMessage", body: msg };
+}
+
+/**
+ * Navbatdagi xabarlarni yuboradi. installTriggers uni har daqiqada ishga tushiradi.
+ * budgetMs — shu chaqiruvda ishlash vaqti (Apps Script 6 daqiqadan oshmasligi kerak).
+ */
+function processBroadcasts(budgetMs) {
+  var budget = typeof budgetMs === "number" ? budgetMs : 4.5 * 60 * 1000;
+  var started = Date.now();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BROADCAST_SHEET);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var token = getConfig().BOT_TOKEN;
+    if (!token) return;
+    var lastCol = Math.max(sheet.getLastColumn(), BC_COL.RECIPIENTS);
+    // Har daqiqada faqat "Holat" ustuni o'qiladi; to'liq qator faqat navbatdagilar uchun
+    var statuses = sheet.getRange(2, BC_COL.STATUS, sheet.getLastRow() - 1, 1).getValues();
+
+    for (var r = 0; r < statuses.length; r++) {
+      var status = statuses[r][0];
+      if (status !== BROADCAST_STATUS.QUEUED && status !== BROADCAST_STATUS.SENDING) continue;
+      var rowNum = r + 2;
+      var row = sheet.getRange(rowNum, 1, 1, lastCol).getValues()[0];
+      var payload = JSON.parse(row[BC_COL.PAYLOAD - 1]);
+      var recipients = JSON.parse(row.slice(BC_COL.RECIPIENTS - 1).join(""));
+      var sent = Number(row[BC_COL.SENT - 1]) || 0;
+      var failed = Number(row[BC_COL.FAILED - 1]) || 0;
+      var offset = sent + failed;
+      sheet.getRange(rowNum, BC_COL.STATUS).setValue(BROADCAST_STATUS.SENDING);
+
+      while (offset < recipients.length) {
+        if (Date.now() - started > budget) return;
+        var batch = recipients.slice(offset, offset + BROADCAST_BATCH);
+        var requests = batch.map(function(chatId) {
+          var req = broadcastRequest(payload, chatId);
+          return {
+            url: "https://api.telegram.org/bot" + token + "/" + req.method,
+            method: "post",
+            contentType: "application/json",
+            payload: JSON.stringify(req.body),
+            muteHttpExceptions: true
+          };
+        });
+        UrlFetchApp.fetchAll(requests).forEach(function(res) {
+          if (res.getResponseCode() === 200) sent++;
+          else failed++;
+        });
+        offset += batch.length;
+        sheet.getRange(rowNum, BC_COL.SENT, 1, 2).setValues([[sent, failed]]);
+        if (offset < recipients.length) Utilities.sleep(1000);
+      }
+      sheet.getRange(rowNum, BC_COL.STATUS).setValue(BROADCAST_STATUS.DONE);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * So'rovnomaga berilgan javob (Telegram poll_answer) → "Sorovnoma_javoblari"
+ */
+function handlePollAnswer(answer) {
+  var props = PropertiesService.getScriptProperties();
+  var metaJson = props.getProperty("poll_" + answer.poll_id);
+  if (!metaJson) return;
+  var meta = JSON.parse(metaJson);
+  var user = answer.user || {};
+  var phoneKey = props.getProperty("tg_phone_" + user.id);
+  var master = phoneKey ? loadAndAggregateMasters().clientsMap[phoneKey] : null;
+  var chosen = (answer.option_ids || []).map(function(i) { return meta.options[i]; }).filter(Boolean);
+
+  getOrCreateSheet(POLL_SHEET, POLL_HEADERS, ["C"]).appendRow([
+    new Date(),
+    sheetText(meta.question, 300),
+    phoneKey ? formatPhoneUz(phoneKey) : "",
+    master ? sheetText(master.name, 100) : "",
+    master ? sheetText(master.region, 60) : "",
+    user.username ? "@" + user.username : String(user.id || ""),
+    chosen.length ? sheetText(chosen.join(", "), 300) : "(javob qaytarib olindi)"
+  ]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1097,6 +1542,10 @@ function webhookOk() {
 }
 
 function handleTelegramWebhook(update) {
+  if (update.poll_answer) {
+    handlePollAnswer(update.poll_answer);
+    return;
+  }
   if (!update.message) {
     return;
   }
@@ -1353,7 +1802,11 @@ function setupSheets() {
 
   getActivitySheet();
   getLeadsSheet();
-  Logger.log("'" + ACTIVITY_SHEET + "' va '" + LEADS_SHEET + "' varaqlari tayyor.");
+  getOrCreateSheet(WINNERS_SHEET, WINNER_HEADERS, ["A", "C"]);
+  Logger.log("'" + ACTIVITY_SHEET + "', '" + LEADS_SHEET + "', '" + WINNERS_SHEET + "' varaqlari tayyor.");
+  if (!getConfig().ADMIN_PHONES) {
+    Logger.log("ESLATMA: admin panel uchun Script Properties ga ADMIN_PHONES (masalan: +998905569060) kiriting.");
+  }
 }
 
 /**
@@ -1418,14 +1871,16 @@ function cleanupSessions() {
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     var handler = trigger.getHandlerFunction();
-    if (handler === "cleanupSessions" || handler === "refreshMastersCache") {
+    if (handler === "cleanupSessions" || handler === "refreshMastersCache" || handler === "processBroadcasts") {
       ScriptApp.deleteTrigger(trigger);
     }
   });
   ScriptApp.newTrigger("cleanupSessions").timeBased().everyDays(1).atHour(4).create();
   // Kesh doim "issiq" turadi — ilova jadvalni o'qishni kutmaydi
   ScriptApp.newTrigger("refreshMastersCache").timeBased().everyMinutes(10).create();
+  // Ommaviy xabarlar navbatini yuboradi (ko'p mijozga xabar bir necha daqiqa davom etadi)
+  ScriptApp.newTrigger("processBroadcasts").timeBased().everyMinutes(1).create();
   cleanupSessions();
   refreshMastersCache();
-  Logger.log("Triggerlar o'rnatildi: kunlik cleanupSessions, har 10 daqiqada refreshMastersCache.");
+  Logger.log("Triggerlar o'rnatildi: kunlik cleanupSessions, har 10 daqiqada refreshMastersCache, har daqiqada processBroadcasts.");
 }

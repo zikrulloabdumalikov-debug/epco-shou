@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useLanguage } from '../i18n/lang';
 
-const MESSAGES = [
+const MESSAGES_UZ = [
   'Ustalar ro\'yxati ochilmoqda...',
   'Biletlaringiz sanalmoqda...',
   'Mijozlar ko\'p — navbatingiz kelmoqda...',
@@ -9,11 +10,21 @@ const MESSAGES = [
   'DAMAS garajdan chiqmoqda...',
 ];
 
+const MESSAGES_RU = [
+  'Открываем список мастеров...',
+  'Считаем ваши билеты...',
+  'Участников много — ваша очередь близко...',
+  'Обновляем рейтинг...',
+  'Заливаем масло в канистру...',
+  'DAMAS выезжает из гаража...',
+];
+
 /**
  * Birinchi yuklanish ekrani. Server javobi necha soniya olishini oldindan bilib bo'lmaydi,
  * shuning uchun foiz tez boshlanib, 95% ga sekin yaqinlashadi va javob kelganda yakunlanadi.
  */
-export const LoadingScreen: React.FC<{ title?: string }> = ({ title = 'EPCO Shou' }) => {
+export const LoadingScreen: React.FC = () => {
+  const MESSAGES = useLanguage() === 'ru' ? MESSAGES_RU : MESSAGES_UZ;
   const [progress, setProgress] = useState(4);
   const [messageIndex, setMessageIndex] = useState(0);
 
@@ -53,7 +64,7 @@ export const LoadingScreen: React.FC<{ title?: string }> = ({ title = 'EPCO Shou
         </div>
 
         <h1 className="text-xl font-black tracking-tight">
-          <span className="text-amber-400">EPCO</span> {title.replace('EPCO', '').trim() || 'Shou'}
+          <span className="text-amber-400">EPCO</span> Shou
         </h1>
         <p key={messageIndex} className="mt-2 h-5 text-sm text-slate-300 animate-in fade-in duration-500">
           {MESSAGES[messageIndex]}

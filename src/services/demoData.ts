@@ -28,9 +28,10 @@ export const DEMO_USER: User = {
 export const DEMO_CONFIG: PromoConfig = {
   totalShowWinners: 30,
   totalConfirmedTicketsPool: 45,
-  totalPrizePoolUsd: 15000,
   grandPrize: 'Chevrolet DAMAS',
-  firstPlacePrize: 'iPhone 18 Pro Max',
+  prizesText: "1 500$ gacha qiymatdagi turli sovg'alar va pul mukofotlari",
+  prizesTextRu: 'Подарки и денежные призы стоимостью до 1 500$',
+  liveUrl: '',
   prizeScope: 'republic',
   startDate: '2026-10-01',
   endDate: '2027-02-28',
@@ -42,7 +43,7 @@ export const DEMO_CONFIG: PromoConfig = {
   isGoogleSheetsConnected: true,
   serverNow: new Date().toISOString(),
   thresholds: [
-    { rank: 1, minAmount: 10000, label: '1-o\'rin (iPhone 18 Pro Max)' },
+    { rank: 1, minAmount: 10000, label: '1-o\'rin' },
     { rank: 3, minAmount: 6000, label: 'Top 3 (Sovg\'alar fondi)' },
     { rank: 10, minAmount: 3500, label: 'Top 10 (Jonli shou zaxirasi)' },
     { rank: 20, minAmount: 1500, label: 'Top 20' }

@@ -50,6 +50,12 @@ class GridSheet {
     return last;
   }
   setFrozenRows() {}
+  getLastColumn() {
+    return Math.max(0, ...this.cells.map((r) => (r ? r.length : 0)));
+  }
+  deleteRow(row: number) {
+    this.cells.splice(row - 1, 1);
+  }
   getRange(a: number | string, b = 1, nr = 1, nc = 1): any {
     let r = a as number;
     let c = b;
@@ -85,6 +91,7 @@ function createEnv() {
   ]);
   const cache = new Map<string, string>();
   const sent: { url: string; payload: any }[] = [];
+  const blockedChats = new Set<string>();
 
   const stats = { masterReads: 0 };
   const ustalar = {
@@ -107,8 +114,8 @@ function createEnv() {
         toSigned(crypto.createHash('sha256').update(String(value), 'utf8').digest()),
       computeHmacSha256Signature: (value: string | number[], key: string | number[]) =>
         toSigned(crypto.createHmac('sha256', asBuffer(key)).update(asBuffer(value)).digest()),
-      newBlob: () => {
-        let data = Buffer.alloc(0);
+      newBlob: (bytes?: number[]) => {
+        let data = Array.isArray(bytes) ? fromSigned(bytes) : Buffer.alloc(0);
         const blob = {
           setDataFromString: (s: string) => {
             data = Buffer.from(s, 'utf8');
@@ -126,6 +133,8 @@ function createEnv() {
         return `${y}-${m}-${day}-${h}`;
       },
       base64Encode: (bytes: number[]) => fromSigned(bytes).toString('base64'),
+      base64Decode: (str: string) => toSigned(Buffer.from(str, 'base64')),
+      sleep: () => {},
     },
     PropertiesService: {
       getScriptProperties: () => ({
@@ -159,9 +168,20 @@ function createEnv() {
     },
     UrlFetchApp: {
       fetch: (url: string, opts: any) => {
-        sent.push({ url, payload: opts && opts.payload ? JSON.parse(opts.payload) : null });
-        return { getResponseCode: () => 200, getContentText: () => '{"ok":true}' };
+        const payload = opts && opts.payload ? (typeof opts.payload === 'string' ? JSON.parse(opts.payload) : opts.payload) : null;
+        sent.push({ url, payload });
+        const method = url.split('/').pop();
+        const result = method === 'sendPoll' ? { message_id: 77, poll: { id: 'POLL1' } }
+          : method === 'sendPhoto' ? { message_id: 78, photo: [{ file_id: 'small' }, { file_id: 'FILE_BIG' }] }
+          : {};
+        return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result }) };
       },
+      fetchAll: (requests: any[]) =>
+        requests.map((req) => {
+          sent.push({ url: req.url, payload: JSON.parse(req.payload) });
+          const code = blockedChats.has(String(JSON.parse(req.payload).chat_id)) ? 403 : 200;
+          return { getResponseCode: () => code };
+        }),
     },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }) },
   };
@@ -203,7 +223,7 @@ function createEnv() {
     return api({ action: 'auth.verifyCode', phone, code: lastCode() }).data.token as string;
   };
 
-  return { ctx, props, cache, sent, sheets, stats, api, webhook, shareContact, lastCode, login };
+  return { ctx, props, cache, sent, sheets, stats, api, webhook, shareContact, lastCode, login, blockedChats };
 }
 
 function signInitData(fields: Record<string, string>, botToken = BOT_TOKEN) {
@@ -388,21 +408,11 @@ describe('Apps Script: Telegram Mini App (HMAC)', () => {
 });
 
 describe('Apps Script: reytingda ismlar', () => {
-  it('rozilik berilmaguncha ism yashirin, rozilikdan keyin ko\'rinadi', () => {
+  it('ismlar ochiq ko\'rsatiladi, telefon va summa yuborilmaydi', () => {
     const env = createEnv();
-    const board = () => env.api({ action: 'leaderboard', scope: 'republic' }).data.entries;
-
-    const masked = board().map((e: any) => e.maskedName);
-    expect(masked).toEqual(['01 · A***', '03 · B***', '05 · S***']);
-    expect(JSON.stringify(board())).not.toContain('Alisher');
-
-    env.shareContact(111, '+998900000001');
-    env.api({ action: 'auth.requestCode', phone: '+998900000001' });
-    const { token } = env.api({ action: 'auth.verifyCode', phone: '+998900000001', code: env.lastCode() }).data;
-    env.api({ action: 'consent.update', token, consent: true });
-
-    expect(board()[0].maskedName).toBe('Alisher Usta');
-    expect(board()[1].maskedName).toBe('03 · B***');
+    const board = env.api({ action: 'leaderboard', scope: 'republic' }).data.entries;
+    expect(board.map((e: any) => e.maskedName)).toEqual(['Alisher Usta', 'Botir Moyxona', 'Sardor Avto']);
+    expect(JSON.stringify(board)).not.toMatch(/900000001|3500/);
   });
 });
 
@@ -548,7 +558,7 @@ describe('Apps Script: bilet raqamlari va tekshiruv', () => {
 
     const ok = env.api({ action: 'ticket.verify', ticketNumber: t1[2].ticketNumber }).data;
     expect(ok.valid).toBe(true);
-    expect(ok.ownerMasked).toBe('01 · A***');
+    expect(ok.ownerMasked).toBe('Alisher Usta');
 
     const tooHigh = t1[2].ticketNumber.replace(/-003$/, '-004'); // Alisherda faqat 3 ta bilet
     expect(env.api({ action: 'ticket.verify', ticketNumber: tooHigh }).data.valid).toBe(false);
@@ -584,5 +594,121 @@ describe('Apps Script: yangi mijoz anketasi', () => {
     const env = createEnv();
     const token = env.login(555, '+998999999999');
     expect(env.api({ action: 'lead.submit', token, lead: { name: '' } }).success).toBe(false);
+  });
+});
+
+describe('Apps Script: admin panel', () => {
+  const setup = () => {
+    const env = createEnv();
+    env.props.set('ADMIN_PHONES', '+998 90 000 00 01');
+    const admin = env.login(111, '+998900000001'); // Alisher — admin
+    const user = env.login(222, '+998910000002'); // Botir — oddiy mijoz
+    env.shareContact(555, '+998999999999'); // bazada yo'q, botga ulangan
+    env.sent.length = 0;
+    return { env, admin, user };
+  };
+
+  it('oddiy mijoz admin amallariga kira olmaydi, admin bootstrap\'da isAdmin oladi', () => {
+    const { env, admin, user } = setup();
+    expect(env.api({ action: 'admin.overview', token: user }).error.code).toBe('FORBIDDEN');
+    expect(env.api({ action: 'admin.overview' }).error.code).toBe('UNAUTHORIZED');
+    expect(env.api({ action: 'bootstrap', token: admin }).data.isAdmin).toBe(true);
+    expect(env.api({ action: 'bootstrap', token: user }).data.isAdmin).toBe(false);
+  });
+
+  it('statistika: bazadagilar, botga ulanganlar, viloyatlar', () => {
+    const { env, admin } = setup();
+    const o = env.api({ action: 'admin.overview', token: admin }).data;
+    expect(o.mastersTotal).toBe(3);
+    expect(o.linkedTotal).toBe(3);
+    expect(o.regions).toEqual(['01 Tashkent', '03 Andijon', '05 Samarqand']);
+  });
+
+  it('sovg\'alar va jonli efir sozlanadi va ilovaga chiqadi', () => {
+    const { env, admin, user } = setup();
+    const bad = env.api({ action: 'admin.settings.update', token: admin, settings: { liveUrl: 'http://evil.com' } });
+    expect(bad.success).toBe(false);
+    env.api({
+      action: 'admin.settings.update', token: admin,
+      settings: { grandPrize: 'Chevrolet DAMAS', prizesText: '1 500$ sovg\'alar', liveUrl: 'https://youtu.be/abc123' },
+    });
+    const cfg = env.api({ action: 'bootstrap', token: user }).data.config;
+    expect(cfg.prizesText).toBe('1 500$ sovg\'alar');
+    expect(cfg.liveUrl).toBe('https://youtu.be/abc123');
+    expect(cfg.firstPlacePrize).toBeUndefined();
+  });
+
+  it('g\'olib qo\'shiladi (ism bazadan), xabar yuboriladi va o\'chiriladi', () => {
+    const { env, admin, user } = setup();
+    const res = env.api({
+      action: 'admin.winner.add', token: admin,
+      winner: { phone: '+998910000002', prize: 'Chevrolet DAMAS', month: 'Oktyabr 2026', videoUrl: 'https://www.youtube.com/watch?v=x1', notify: true },
+    }).data;
+    expect(res.notified).toBe(true);
+    expect(res.winners[0]).toMatchObject({ winnerName: 'Botir Moyxona', region: '03 Andijon', prize: 'Chevrolet DAMAS' });
+    const msg = env.sent.find((m) => m.url.endsWith('/sendMessage'))!;
+    expect(String(msg.payload.chat_id)).toBe('222');
+    expect(msg.payload.text).toContain('Tabriklaymiz');
+
+    expect(env.api({ action: 'bootstrap', token: user }).data.winners[0].videoUrl).toBe('https://www.youtube.com/watch?v=x1');
+    const after = env.api({ action: 'admin.winner.delete', token: admin, id: res.winners[0].id }).data;
+    expect(after.winners).toHaveLength(0);
+  });
+
+  it('matnli xabar: tanlangan guruhga yuboriladi, natija "Xabarlar"ga yoziladi', () => {
+    const { env, admin } = setup();
+    expect(env.api({ action: 'admin.broadcast.preview', token: admin, target: { type: 'all' } }).data.count).toBe(3);
+    expect(env.api({ action: 'admin.broadcast.preview', token: admin, target: { type: 'new' } }).data.count).toBe(1);
+    expect(env.api({ action: 'admin.broadcast.preview', token: admin, target: { type: 'region', value: '03 Andijon' } }).data.count).toBe(1);
+
+    env.blockedChats.add('555'); // botni bloklagan
+    const res = env.api({
+      action: 'admin.broadcast.create', token: admin,
+      broadcast: { kind: 'text', text: 'Yangi aksiya!', target: { type: 'all' }, buttonText: 'Ilovani ochish', buttonUrl: 'https://example.uz' },
+    }).data;
+    expect(res.broadcasts[0]).toMatchObject({ total: 3, sent: 2, failed: 1, status: 'Yuborildi' });
+    const one = env.sent.find((m) => m.url.endsWith('/sendMessage'))!;
+    expect(one.payload.reply_markup.inline_keyboard[0][0].url).toBe('https://example.uz');
+  });
+
+  it('rasmli e\'lon: rasm bir marta yuklanadi, keyin file_id bilan yuboriladi', () => {
+    const { env, admin } = setup();
+    const img = 'data:image/jpeg;base64,' + Buffer.from('fake-image').toString('base64');
+    env.api({ action: 'admin.broadcast.create', token: admin, broadcast: { kind: 'photo', text: 'Chegirma!', imageBase64: img, target: { type: 'registered' } } });
+    expect(env.sent.filter((m) => m.url.endsWith('/sendPhoto') && m.payload.photo === 'FILE_BIG')).toHaveLength(2);
+  });
+
+  it('so\'rovnoma: hammaga forward qilinadi, javoblar varaqqa yoziladi', () => {
+    const { env, admin } = setup();
+    env.api({
+      action: 'admin.broadcast.create', token: admin,
+      broadcast: { kind: 'poll', pollQuestion: 'Qaysi moy ko\'p sotiladi?', pollOptions: ['5W-30', '10W-40', ''], target: { type: 'all' } },
+    });
+    const forwards = env.sent.filter((m) => m.url.endsWith('/forwardMessage'));
+    expect(forwards).toHaveLength(3);
+    expect(forwards[0].payload.message_id).toBe(77);
+
+    env.webhook({ update_id: 9001, poll_answer: { poll_id: 'POLL1', user: { id: 222, username: 'botir' }, option_ids: [1] } });
+    const row = env.sheets['Sorovnoma_javoblari'].getRange(2, 1, 1, 7).getValues()[0];
+    expect(row.slice(1)).toEqual(["Qaysi moy ko'p sotiladi?", '+998 (91) 000-00-02', 'Botir Moyxona', '03 Andijon', '@botir', '10W-40']);
+  });
+
+  it('ko\'p qabul qiluvchi: vaqt tugasa navbatda qoladi va trigger davom ettiradi', () => {
+    const { env, admin } = setup();
+    for (let i = 0; i < 60; i++) env.props.set(`tg_chat_93${String(i).padStart(7, '0')}`, String(10000 + i));
+    const ctxDate = vm.runInContext('Date', env.ctx);
+    const realNow = ctxDate.now;
+    let t = realNow();
+    ctxDate.now = () => (t += 15000); // har chaqiruvda 15 soniya "o'tadi"
+    try {
+      const res = env.api({ action: 'admin.broadcast.create', token: admin, broadcast: { kind: 'text', text: 'Salom', target: { type: 'all' } } }).data;
+      expect(res.broadcasts[0].status).toBe('Yuborilmoqda');
+      expect(res.broadcasts[0].sent).toBeLessThan(63);
+    } finally {
+      ctxDate.now = realNow;
+    }
+    env.ctx.processBroadcasts();
+    const list = env.api({ action: 'admin.broadcast.list', token: admin }).data.broadcasts;
+    expect(list[0]).toMatchObject({ total: 63, sent: 63, status: 'Yuborildi' });
   });
 });

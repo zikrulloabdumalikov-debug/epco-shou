@@ -194,8 +194,9 @@ class ApiService {
     return this.request('leaderboard', { scope, region });
   }
 
-  public async updateConsent(consent: boolean): Promise<ApiResponse<{ success: boolean; consent: boolean }>> {
-    return this.request('consent.update', { consent });
+  /** Admin panel amallari (admin.overview, admin.broadcast.create, ...) — server adminligini tekshiradi */
+  public async admin<T = any>(action: string, payload: Record<string, any> = {}): Promise<ApiResponse<T>> {
+    return this.request<T>(`admin.${action}`, payload);
   }
 
   public async verifyTicket(ticketNumber: string): Promise<ApiResponse<{ valid: boolean; ticketNumber?: string; month?: string; status?: string; ownerMasked?: string; message?: string }>> {
