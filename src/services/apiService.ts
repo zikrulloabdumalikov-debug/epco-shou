@@ -1,14 +1,4 @@
-import {
-  User,
-  PromoConfig,
-  ClientStats,
-  LeaderboardEntry,
-  Ticket,
-  Product,
-  Order,
-  PastWinner,
-  PrizeScope
-} from '../types';
+import { BootstrapData, LeadForm, LeaderboardEntry, PrizeScope } from '../types';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -22,10 +12,29 @@ export interface ApiResponse<T = any> {
 
 const STORAGE_KEYS = {
   TOKEN: 'epco_token',
-  USER: 'epco_user_cache',
-  STATS: 'epco_stats_cache',
-  CONFIG: 'epco_config_cache',
-  PHONE: 'epco_last_phone'
+  BOOTSTRAP: 'epco_bootstrap_v2',
+  PHONE: 'epco_last_phone',
+};
+
+// Apps Script ba'zan sekin javob beradi; cheksiz kutib qolmaslik uchun
+const REQUEST_TIMEOUT_MS = 45000;
+
+const storage = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string | null) {
+    try {
+      if (value === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, value);
+    } catch {
+      // private rejim yoki to'lgan xotira — kesh shart emas
+    }
+  },
 };
 
 class ApiService {
@@ -34,12 +43,8 @@ class ApiService {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      this.token = storage.get(STORAGE_KEYS.TOKEN);
     }
-  }
-
-  public getUrl(): string {
-    return this.url;
   }
 
   public getToken(): string | null {
@@ -48,22 +53,13 @@ class ApiService {
 
   public setToken(token: string | null): void {
     this.token = token;
-    if (typeof window !== 'undefined') {
-      if (token) {
-        localStorage.setItem(STORAGE_KEYS.TOKEN, token);
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-      }
-    }
+    storage.set(STORAGE_KEYS.TOKEN, token);
   }
 
+  /** Tokenni va saqlangan shaxsiy ma'lumotlarni o'chiradi */
   public clearToken(): void {
     this.setToken(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEYS.USER);
-      localStorage.removeItem(STORAGE_KEYS.STATS);
-      localStorage.removeItem(STORAGE_KEYS.CONFIG);
-    }
+    storage.set(STORAGE_KEYS.BOOTSTRAP, null);
   }
 
   public isTelegramMiniApp(): boolean {
@@ -78,48 +74,35 @@ class ApiService {
   }
 
   /**
-   * Universal POST so'rov (text/plain yuboriladi - CORS preflight muammosini oldini oladi)
+   * Universal POST so'rov (text/plain yuboriladi - CORS preflight muammosini oldini oladi).
+   * Tizimdan faqat server aniq UNAUTHORIZED desa chiqariladi; tarmoq xatosi yoki
+   * sekin javob foydalanuvchini chiqarib yubormaydi.
    */
   public async request<T = any>(action: string, payload: Record<string, any> = {}): Promise<ApiResponse<T>> {
-    const endpoint = this.url;
-    if (!endpoint) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_ENDPOINT',
-          message: 'Google Apps Script URL o\'rnatilmagan'
-        }
-      };
+    if (!this.url) {
+      return { success: false, error: { code: 'NO_ENDPOINT', message: 'Google Apps Script URL o\'rnatilmagan' } };
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const body = JSON.stringify({
-        action,
-        token: this.token || undefined,
-        ...payload
-      });
-
-      const response = await fetch(endpoint, {
+      const response = await fetch(this.url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8'
-        },
-        body
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, token: this.token || undefined, ...payload }),
+        signal: controller.signal,
       });
-
       if (!response.ok) {
         throw new Error(`Server xatoligi: ${response.status}`);
       }
 
       const json = await response.json();
-
       if (!json.success && json.error?.code === 'UNAUTHORIZED') {
         this.clearToken();
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('epco-unauthorized'));
         }
       }
-
       return json as ApiResponse<T>;
     } catch (err: any) {
       console.warn(`[ApiService] ${action} so'rovi amalga oshmadi:`, err);
@@ -127,159 +110,96 @@ class ApiService {
         success: false,
         error: {
           code: 'NETWORK_ERROR',
-          message: err.message || 'Tarmoq xatosi yoki server javob bermadi'
-        }
+          message: err?.name === 'AbortError'
+            ? 'Server juda uzoq javob bermadi. Birozdan keyin qayta urinib ko\'ring.'
+            : 'Internet aloqasini tekshirib, qayta urinib ko\'ring.',
+        },
       };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   /**
    * Telegram Mini App orqali bir teginishda avtorizatsiya
    */
-  public async authTelegram(): Promise<ApiResponse<{ token?: string; user?: User; stats?: ClientStats; config?: PromoConfig; status?: string; message?: string }>> {
+  public async authTelegram(): Promise<ApiResponse<{ token?: string; registered?: boolean; status?: string; message?: string; botUrl?: string }>> {
     const initData = this.getTelegramInitData();
     if (!initData) {
-      return {
-        success: false,
-        error: { code: 'NO_INIT_DATA', message: 'Telegram WebApp ma\'lumoti topilmadi' }
-      };
+      return { success: false, error: { code: 'NO_INIT_DATA', message: 'Telegram WebApp ma\'lumoti topilmadi' } };
     }
-
     const res = await this.request('auth.telegram', { initData });
     if (res.success && res.data?.token) {
       this.setToken(res.data.token);
-      this.cacheUserData(res.data.user, res.data.stats, res.data.config);
     }
     return res;
   }
 
   /**
    * Brauzer / PWA uchun 6 xonali kodni Telegram bot orqali so'rash.
-   * status: CODE_SENT | NEED_PHONE_LINK | NOT_FOUND | TOO_SOON | INVALID_PHONE | SEND_FAILED
+   * status: CODE_SENT | NEED_PHONE_LINK | TOO_SOON | INVALID_PHONE | SEND_FAILED
    */
   public async requestCode(phone: string): Promise<ApiResponse<{ status: string; message: string; botUrl?: string }>> {
     const res = await this.request('auth.requestCode', { phone });
-    if (typeof window !== 'undefined' && phone) {
-      localStorage.setItem(STORAGE_KEYS.PHONE, phone);
-    }
+    if (phone) storage.set(STORAGE_KEYS.PHONE, phone);
     return res;
   }
 
   /**
    * 6 xonali kodni tekshirish va sessiya tokenini olish
    */
-  public async verifyCode(phone: string, code: string): Promise<ApiResponse<{ token: string; user: User; stats: ClientStats; config: PromoConfig }>> {
+  public async verifyCode(phone: string, code: string): Promise<ApiResponse<{ token: string; registered: boolean }>> {
     const res = await this.request('auth.verifyCode', { phone, code });
     if (res.success && res.data?.token) {
       this.setToken(res.data.token);
-      this.cacheUserData(res.data.user, res.data.stats, res.data.config);
     }
     return res;
   }
 
-  /**
-   * Tizimdan chiqish
-   */
   public async logout(): Promise<void> {
     if (this.token) {
-      try {
-        await this.request('auth.logout', { token: this.token });
-      } catch (e) {}
+      await this.request('auth.logout');
     }
-    this.setToken(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEYS.USER);
-      localStorage.removeItem(STORAGE_KEYS.STATS);
-      localStorage.removeItem(STORAGE_KEYS.CONFIG);
-    }
+    this.clearToken();
   }
 
   /**
-   * Joriy mijoz ma'lumotlari va statistikasini olish
+   * Ilova uchun kerak bo'lgan hamma narsa bitta so'rovda (profil, statistika, reyting, biletlar)
    */
-  public async getMe(): Promise<ApiResponse<{ user: User; stats: ClientStats; config: PromoConfig }>> {
-    const res = await this.request<{ user: User; stats: ClientStats; config: PromoConfig }>('me');
+  public async bootstrap(): Promise<ApiResponse<BootstrapData>> {
+    const res = await this.request<BootstrapData>('bootstrap');
     if (res.success && res.data) {
-      this.cacheUserData(res.data.user, res.data.stats, res.data.config);
+      storage.set(STORAGE_KEYS.BOOTSTRAP, JSON.stringify(res.data));
     }
     return res;
   }
 
-  /**
-   * Jonli reyting ro'yxati
-   */
-  public async getLeaderboard(scope: PrizeScope = 'republic', region?: string): Promise<ApiResponse<{ scope: string; totalParticipants: number; leaderboard: LeaderboardEntry[] }>> {
-    return await this.request('leaderboard', { scope, region });
+  /** Oxirgi muvaffaqiyatli bootstrap — ilova qayta ochilganda darhol ko'rsatiladi */
+  public getCachedBootstrap(): BootstrapData | null {
+    if (!this.token) return null;
+    const raw = storage.get(STORAGE_KEYS.BOOTSTRAP);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as BootstrapData;
+    } catch {
+      return null;
+    }
   }
 
-  /**
-   * Biletlar ro'yxati
-   */
-  public async getTickets(): Promise<ApiResponse<{ tickets: Ticket[] }>> {
-    return await this.request('tickets');
+  public async submitLead(lead: LeadForm): Promise<ApiResponse<{ submitted: boolean; supportPhone: string }>> {
+    return this.request('lead.submit', { lead });
   }
 
-  /**
-   * Katalog
-   */
-  public async getCatalog(): Promise<ApiResponse<{ products: Product[] }>> {
-    return await this.request('catalog');
+  public async getLeaderboard(scope: PrizeScope = 'republic', region?: string): Promise<ApiResponse<{ entries: LeaderboardEntry[] }>> {
+    return this.request('leaderboard', { scope, region });
   }
 
-  /**
-   * Zakaz yaratish
-   */
-  public async createOrder(items: { productId: string; quantity: number }[]): Promise<ApiResponse<{ orderNumber: string; totalAmount: number; status: string; message: string }>> {
-    return await this.request('order.create', { items });
-  }
-
-  /**
-   * G'oliblar
-   */
-  public async getWinners(): Promise<ApiResponse<{ winners: PastWinner[] }>> {
-    return await this.request('winners');
-  }
-
-  /**
-   * Ismni yashirish/ko'rsatish roziligini yangilash
-   */
   public async updateConsent(consent: boolean): Promise<ApiResponse<{ success: boolean; consent: boolean }>> {
-    return await this.request('consent.update', { consent });
+    return this.request('consent.update', { consent });
   }
 
-  /**
-   * Bilet raqami bo'yicha haqiqiyligini tekshirish
-   */
   public async verifyTicket(ticketNumber: string): Promise<ApiResponse<{ valid: boolean; ticketNumber?: string; month?: string; status?: string; ownerMasked?: string; message?: string }>> {
-    return await this.request('ticket.verify', { ticketNumber });
-  }
-
-  private cacheUserData(user?: User, stats?: ClientStats, config?: PromoConfig): void {
-    if (typeof window === 'undefined') return;
-    if (user) localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-    if (stats) localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
-    if (config) localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
-  }
-
-  public getCachedUser(): User | null {
-    if (typeof window === 'undefined') return null;
-    const str = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!str) return null;
-    try { return JSON.parse(str); } catch { return null; }
-  }
-
-  public getCachedStats(): ClientStats | null {
-    if (typeof window === 'undefined') return null;
-    const str = localStorage.getItem(STORAGE_KEYS.STATS);
-    if (!str) return null;
-    try { return JSON.parse(str); } catch { return null; }
-  }
-
-  public getCachedConfig(): PromoConfig | null {
-    if (typeof window === 'undefined') return null;
-    const str = localStorage.getItem(STORAGE_KEYS.CONFIG);
-    if (!str) return null;
-    try { return JSON.parse(str); } catch { return null; }
+    return this.request('ticket.verify', { ticketNumber });
   }
 }
 

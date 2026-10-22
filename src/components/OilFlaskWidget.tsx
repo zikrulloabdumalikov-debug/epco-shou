@@ -209,29 +209,12 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
 
         {/* Right Info Column: To'lov, Qarz va Biletlar Holati */}
         <div className="flex-1 min-w-0 space-y-2">
-          {/* Header row: To'langan summa va Biletlar */}
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">
-                Jami To'lov (Berilgan pul):
-              </span>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-base sm:text-lg font-black text-amber-400 tabular-nums">
-                  ${stats.confirmedAmount}
-                </span>
-                <span className="text-xs text-white font-bold">
-                  ({stats.tickets} ta bilet)
-                </span>
-              </div>
-            </div>
-
-            <button
-              onClick={onOpenTicketsModal}
-              className="px-2.5 py-1 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-amber-300 font-bold text-xs flex items-center gap-1 active:scale-95 transition-transform cursor-pointer"
-            >
-              <span>🎟️</span>
-              <span>Biletlar</span>
-            </button>
+          {/* Shu oy to'langan summa */}
+          <div>
+            <span className="text-[11px] text-slate-400 block font-semibold">Shu oy to'lagansiz:</span>
+            <span className="text-xl font-black text-amber-400 tabular-nums">
+              ${Math.round(stats.confirmedAmount || 0).toLocaleString('en-US')}
+            </span>
           </div>
 
           {/* Qarz Holati Banneri (Aksiya yangi qoidasi: qarz $0 bo'lsa biletlar AKTUAL!) */}
@@ -252,36 +235,21 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-base shrink-0">{stats.isDebtCleared ? '🛡️' : '⚠️'}</span>
               <div className="min-w-0">
-                <span className={`text-xs font-black block truncate ${stats.isDebtCleared ? 'text-emerald-300' : 'text-rose-200'}`}>
-                  {stats.isDebtCleared ? 'Qarz: $0 (Qarzsiz)' : `Qarz: $${stats.debtAmount} mavjud`}
+                <span className={`text-xs font-black block ${stats.isDebtCleared ? 'text-emerald-300' : 'text-rose-200'}`}>
+                  {stats.isDebtCleared ? "Qarzingiz yo'q" :`Qarz: $${Math.round(stats.debtAmount || 0).toLocaleString('en-US')}`}
                 </span>
-                <span className={`text-[10px] block truncate ${stats.isDebtCleared ? 'text-emerald-200/80' : 'text-rose-300/90'}`}>
-                  {stats.isDebtCleared
-                    ? '✓ Barcha biletlar AKTUAL (Tirajga tayyor!)'
-                    : 'Biletlar nofaol. Qarzni $0 qilish shart!'}
+                <span className={`text-[11px] block leading-snug ${stats.isDebtCleared ? 'text-emerald-200/80' : 'text-rose-300/90'}`}>
+                  {stats.isDebtCleared ? 'Biletlaringiz faol' : 'Biletlar nofaol — qarzni yoping'}
                 </span>
               </div>
             </div>
-            <span
-              className={`shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-md border ${
-                stats.isDebtCleared
-                  ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40'
-                  : 'text-rose-300 bg-rose-500/30 border-rose-400/50'
-              }`}
-            >
-              {stats.isDebtCleared ? 'AKTUAL' : 'NOFAOL'}
-            </span>
           </div>
 
           {/* Keyingi biletga qolgan summa va progress */}
           <div className="bg-[#090D17]/80 rounded-xl p-2 sm:p-2.5 border border-white/10 space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-300 font-medium">
-                Keyingi biletga:
-              </span>
-              <span className="text-amber-400 font-extrabold tabular-nums">
-                ${stats.gapToNextTicket} to'lov qoldi
-              </span>
+            <div className="text-xs text-slate-300">
+              Keyingi biletgacha:{' '}
+              <b className="text-amber-400 tabular-nums">${Math.round(stats.gapToNextTicket || 0).toLocaleString('en-US')}</b>
             </div>
 
             {/* Visual Progress Bar */}
@@ -293,26 +261,11 @@ export const OilFlaskWidget: React.FC<OilFlaskWidgetProps> = ({
             </div>
 
             <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium tabular-nums">
-              <span>Hozir: ${remainder}/$1,000</span>
-              <span>Har $1,000 = 1 bilet</span>
+              <span>${Math.round(remainder)} / $1,000</span>
+              <span>$1,000 = 1 bilet</span>
             </div>
           </div>
 
-          {/* Action button: Maslahat */}
-          <div className="flex items-center gap-2 pt-0.5">
-            <button
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent('usta-moy-speak', { detail: { topic: 'ticket' } })
-                );
-              }}
-              className="flex-1 min-h-[38px] rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-amber-300 font-extrabold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-transform cursor-pointer"
-              title="Qoidani eshitish"
-            >
-              <span>💡</span>
-              <span>Usta Moy Maslahati</span>
-            </button>
-          </div>
         </div>
       </div>
 

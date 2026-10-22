@@ -2,8 +2,8 @@
  * EPCO – KATTA ROZIG'ISH SHOU (Production Backend)
  * Google Apps Script Web App & Telegram Bot
  *
- * Versiya: 2.2.0 (Single Sheet Mode - Faqat "Ustalar" varag'i bilan ishlaydi)
- * Hech qanday qo'shimcha varaqlar talab qilinmaydi!
+ * Versiya: 2.3.0. Mijozlar "Ustalar" varag'idan o'qiladi; "Ulanishlar" va
+ * "Yangi_mijozlar" varaqlari avtomatik yaratiladi.
  *
  * 2.2.0 xavfsizlik: kirish faqat Telegram botdagi 6 xonali kod yoki imzosi
  * (HMAC) tekshirilgan Telegram Mini App orqali; webhook WEBHOOK_SECRET bilan
@@ -33,61 +33,7 @@ var DEFAULTS = {
   TOTAL_PRIZE_POOL_USD: 15000,
   GRAND_PRIZE: "Chevrolet DAMAS",
   FIRST_PLACE_PRIZE: "iPhone 18 Pro Max",
-  BOT_USERNAME: "epcoaksiya_bot",
-
-  // O'rnatilgan standart katalog (Katalog varag'i bo'lmaganda ishlatiladi)
-  CATALOG: [
-    {
-      id: "EPCO-SYN-5W30-4L",
-      name: "EPCO Ultra Synth 5W-30",
-      viscosity: "5W-30",
-      volumeLiters: 4,
-      priceUsd: 38,
-      category: "passenger",
-      description: "Zamonaviy benzin va dizel dvigatellari uchun to'liq sintetik motor moyi",
-      popular: true
-    },
-    {
-      id: "EPCO-SYN-5W40-4L",
-      name: "EPCO Premium Synth 5W-40",
-      viscosity: "5W-40",
-      volumeLiters: 4,
-      priceUsd: 36,
-      category: "passenger",
-      description: "Yuqori yuklamalarda ishlovchi dvigatellar uchun himoya",
-      popular: true
-    },
-    {
-      id: "EPCO-SEMI-10W40-4L",
-      name: "EPCO Super Semi 10W-40",
-      viscosity: "10W-40",
-      volumeLiters: 4,
-      priceUsd: 28,
-      category: "passenger",
-      description: "Yarim sintetik universal motor moyi",
-      popular: true
-    },
-    {
-      id: "EPCO-HD-15W40-20L",
-      name: "EPCO Heavy Duty 15W-40 (20L)",
-      viscosity: "15W-40",
-      volumeLiters: 20,
-      priceUsd: 110,
-      category: "commercial",
-      description: "Tijoriy va og'ir yuk mashinalari uchun mineral moy",
-      popular: false
-    },
-    {
-      id: "EPCO-ATF-D3-1L",
-      name: "EPCO ATF Dexron III (1L)",
-      viscosity: "ATF III",
-      volumeLiters: 1,
-      priceUsd: 11,
-      category: "transmission",
-      description: "Avtomatik uzatmalar qutisi va gidrokuchaytirgich uchun",
-      popular: false
-    }
-  ]
+  BOT_USERNAME: "epcoaksiya_bot"
 };
 
 /**
@@ -126,9 +72,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  var lock = LockService.getScriptLock();
   try {
-    lock.waitLock(15000);
     var content = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
     var data = {};
     try {
@@ -157,11 +101,20 @@ function doPost(e) {
       return webhookOk();
     }
 
-    // 2. Web App API so'rovlari
+    // 2. Web App API so'rovlari. Umumiy qulf (LockService) yo'q: ilova bir vaqtda bir nechta
+    // so'rov yuborganda ular bir-birini kutib, "блокировка" xatosi bilan tushardi.
     var action = data.action || "";
     var token = data.token || "";
-    var responseData = null;
+    var phoneKey = null;
+    var needsAuth = ["bootstrap", "me", "tickets", "consent.update", "lead.submit"];
+    if (needsAuth.indexOf(action) !== -1) {
+      phoneKey = getPhoneFromToken(token);
+      if (!phoneKey) {
+        return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Sessiya muddati tugagan. Iltimos, qayta kiring." });
+      }
+    }
 
+    var responseData = null;
     switch (action) {
       // Autentifikatsiya: faqat Telegram Mini App (HMAC) yoki Telegram botdagi kod orqali
       case "auth.telegram":
@@ -181,59 +134,36 @@ function doPost(e) {
         responseData = { loggedOut: true };
         break;
 
-      // Foydalanuvchi ma'lumotlari
+      // Ilova ochilganda kerak bo'lgan hamma narsa bitta so'rovda
+      case "bootstrap":
+        responseData = handleBootstrap(phoneKey);
+        break;
+
       case "me":
-        var phoneFromToken = getPhoneFromToken(token);
-        if (!phoneFromToken) {
-          return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Sessiya muddati tugagan yoki noto'g'ri token" });
-        }
-        responseData = handleGetClient(phoneFromToken, token);
-        recordActivity(phoneFromToken, "active");
+        responseData = handleGetClient(phoneKey);
         break;
 
-      // Reyting
       case "leaderboard":
-        responseData = handleGetLeaderboard(data.scope || "republic", data.region);
+        responseData = handleGetLeaderboard(data.scope || "republic", data.region, getPhoneFromToken(token));
         break;
 
-      // Biletlar
       case "tickets":
-        var tPhone = getPhoneFromToken(token);
-        if (!tPhone) {
-          return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Avtorizatsiyadan o'tilmagan" });
-        }
-        responseData = handleGetTickets(tPhone);
+        responseData = handleGetTickets(phoneKey);
         break;
 
-      // Katalog
-      case "catalog":
-        responseData = handleGetCatalog();
-        break;
-
-      // Buyurtma
-      case "order.create":
-        var oPhone = getPhoneFromToken(token);
-        if (!oPhone) {
-          return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Avtorizatsiyadan o'tilmagan" });
-        }
-        responseData = handleCreateOrder(oPhone, data.items || []);
-        break;
-
-      // Ismni yashirish/ko'rsatish roziligi
       case "consent.update":
-        var cPhone = getPhoneFromToken(token);
-        if (!cPhone) {
-          return createJsonResponse(false, null, { code: "UNAUTHORIZED", message: "Avtorizatsiyadan o'tilmagan" });
-        }
-        responseData = handleUpdateConsent(cPhone, Boolean(data.consent));
+        responseData = handleUpdateConsent(phoneKey, Boolean(data.consent));
         break;
 
-      // Bilet haqiqiyligini tekshirish
+      // Bazada yo'q yangi mijoz anketasi
+      case "lead.submit":
+        responseData = handleSubmitLead(phoneKey, data.lead || {});
+        break;
+
       case "ticket.verify":
         responseData = handleVerifyTicket(data.ticketNumber);
         break;
 
-      // G'oliblar
       case "winners":
         responseData = handleGetWinners();
         break;
@@ -247,8 +177,6 @@ function doPost(e) {
   } catch (err) {
     Logger.log("doPost xatolik: " + err.toString());
     return createJsonResponse(false, null, { code: "EXECUTION_ERROR", message: (err && err.message) || String(err) });
-  } finally {
-    try { lock.releaseLock(); } catch (lErr) {}
   }
 }
 
@@ -312,162 +240,226 @@ function parseMoney(val) {
   return isNaN(num) ? 0 : num;
 }
 
+function roundMoney(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Jadvalga yoziladigan matn: "=", "+", "-", "@" bilan boshlansa formula bo'lib ketmasligi uchun
+ */
+function sheetText(value, maxLength) {
+  var s = String(value === undefined || value === null ? "" : value).trim().slice(0, maxLength || 200);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
+var MONTHS_UZ = [
+  "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+  "Iyul", "Avgust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"
+];
+
 function getCurrentMonth() {
   return Utilities.formatDate(new Date(), DEFAULTS.TIMEZONE, "yyyy-MM");
 }
 
-function getRemainingTimeInMonth() {
+/**
+ * Oy oxirigacha qolgan vaqt (Toshkent vaqti bo'yicha)
+ */
+function getMonthTiming() {
   var now = new Date();
-  var year = now.getFullYear();
-  var month = now.getMonth();
-  var endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
-  var diffMs = endOfMonth.getTime() - now.getTime();
-  var diffHours = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
-  var diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-  var isLastDay = diffDays === 0;
-
-  var monthsUz = [
-    "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
-    "Iyul", "Avgust", "Sentyabr", "Oktyabr", "Noyabr", "Dekabr"
-  ];
-  var currentMonthName = monthsUz[month];
-  var currentDateFormatted = now.getDate() + "-" + currentMonthName + ", " + year;
-
+  var parts = Utilities.formatDate(now, DEFAULTS.TIMEZONE, "yyyy-M-d-H").split("-");
+  var year = Number(parts[0]), month = Number(parts[1]), day = Number(parts[2]), hour = Number(parts[3]);
+  var daysInMonth = new Date(year, month, 0).getDate();
+  var hoursRemaining = Math.max(0, (daysInMonth - day) * 24 + (23 - hour));
+  var daysRemaining = daysInMonth - day;
+  var monthName = MONTHS_UZ[month - 1];
   return {
-    daysRemaining: diffDays,
-    hoursRemaining: diffHours,
-    isLastDay: isLastDay,
-    currentMonthName: currentMonthName,
-    currentDateFormatted: currentDateFormatted,
-    label: isLastDay ? (diffHours + " soat qoldi!") : (diffDays + " kun qoldi")
+    daysRemaining: daysRemaining,
+    hoursRemaining: hoursRemaining,
+    isLastDay: daysRemaining === 0,
+    monthName: monthName + " " + year,
+    dateFormatted: day + "-" + monthName + ", " + year,
+    label: daysRemaining === 0 ? (hoursRemaining + " soat qoldi!") : (daysRemaining + " kun qoldi")
   };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4. "USTALAR" VARAG'INI O'QISH VA AGREGATSIYA QILISH
+// 4. "USTALAR" VARAG'INI O'QISH, KESHLASH VA AGREGATSIYA QILISH
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Faqat "Ustalar" varag'ini o'qiydi.
- * Ustunlar:
- * 0 (A): Tashkilot / Hudud (01 Tashkent)
- * 1 (B): AGENT
- * 2 (C): Mijoz nomi (Клиент)
- * 3 (D): Sana (Дата создания клиента)
- * 4 (E): Telefon raqami (MIJOZ TEL RAQAMI)
- * 5 (F): STATUS AKSIYA
- * 6 (G): PUL KIRIM
- * 7 (H): QARZ (manfiy son = qarz)
- * 8 (I): Bilet soni
- */
-function loadAndAggregateMasters() {
-  var config = getConfig();
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) return { clientsMap: {}, totalActiveTickets: 0, clientList: [] };
+var MASTERS_CACHE_KEY = "masters_v2";
+var MASTERS_CACHE_SECONDS = 900;   // 15 daqiqa; jadval qo'lda o'zgartirilsa onEdit keshni tozalaydi
+var MASTERS_CACHE_CHUNK = 30000;   // CacheService qiymati 100KB dan oshmasligi kerak
+var LEADERBOARD_SIZE = 50;
 
+function getMasterSheet(ss) {
   var sheet = ss.getSheetByName("Ustalar");
-  if (!sheet) {
-    // Agar varaq nomi boshqacha bo'lsa, birinchi varaqni olish
-    sheet = ss.getSheets()[0];
+  if (sheet) return sheet;
+  var all = ss.getSheets();
+  for (var i = 0; i < all.length; i++) {
+    var name = all[i].getName();
+    if (name !== ACTIVITY_SHEET && name !== LEADS_SHEET) return all[i];
   }
-  if (!sheet || sheet.getLastRow() < 2) {
-    return { clientsMap: {}, totalActiveTickets: 0, clientList: [] };
-  }
+  return null;
+}
 
-  var numCols = Math.max(sheet.getLastColumn(), 9);
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, numCols).getValues();
-  var clientsMap = {};
+/**
+ * "Ustalar" varag'ini o'qib, telefon bo'yicha jamlaydi.
+ * Ustunlar: A Hudud, B Agent, C Mijoz, D Sana, E Telefon, F Status, G Pul kirim, H Qarz, I Bilet soni
+ * Natija: [[phoneKey, ism, hudud, agent, pulKirim, qarz, qo'lda biletlar], ...]
+ */
+function readMasterRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return [];
+  var sheet = getMasterSheet(ss);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  // Faqat kerakli 9 ta ustun — butun varaqni o'qish juda sekin edi
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+  var map = {};
+  var order = [];
 
   for (var i = 0; i < data.length; i++) {
     var row = data[i];
-    var region = String(row[0] || "").trim();      // Col A: Tashkilot
-    var agent = String(row[1] || "").trim();       // Col B: AGENT
-    var clientName = String(row[2] || "").trim();  // Col C: Mijoz nomi
-    var dateVal = row[3];                          // Col D: Sana
-    var rawPhone = row[4];                         // Col E: Tel
-    var status = String(row[5] || "").trim();      // Col F: Status aksiya
-    var paidVal = parseMoney(row[6]);              // Col G: Pul kirim
-    var rawDebt = parseMoney(row[7]);              // Col H: Qarz (manfiy son = qarz)
-    var manualTickets = Number(row[8]) || 0;       // Col I: Bilet soni
+    var region = String(row[0] || "").trim();
+    var agent = String(row[1] || "").trim();
+    var clientName = String(row[2] || "").trim();
+    var phoneKey = extractPhoneKey(row[4], clientName);
+    if (!phoneKey) continue;
 
-    var phoneKey = extractPhoneKey(rawPhone, clientName);
-    if (!phoneKey) {
-      continue; // Telefon topilmasa o'tkazib yuborish
-    }
+    var paid = parseMoney(row[6]);
+    var rawDebt = parseMoney(row[7]); // Jadvalda qarz manfiy son: -276.52
+    var manualTickets = Number(row[8]) || 0;
 
-    // Qarzni aniqlash: agar manfiy bo'lsa yoki musbat bo'lsa
-    // Jadvalda: -276.52 -> Math.abs(-276.52) = 276.52 qarz
-    var currentDebt = 0;
-    if (rawDebt < 0) {
-      currentDebt = Math.abs(rawDebt);
-    } else if (rawDebt > 0) {
-      currentDebt = rawDebt;
+    var item = map[phoneKey];
+    if (!item) {
+      item = map[phoneKey] = [phoneKey, clientName, region, agent, 0, 0, 0];
+      order.push(phoneKey);
     }
-
-    if (!clientsMap[phoneKey]) {
-      clientsMap[phoneKey] = {
-        phoneKey: phoneKey,
-        phoneFormatted: formatPhoneUz(phoneKey),
-        name: clientName || "Mijoz " + phoneKey.slice(-4),
-        region: region || "O'zbekiston",
-        agent: agent,
-        paidAmount: 0,
-        debtAmount: 0,
-        manualTickets: 0
-      };
-    }
-
-    var c = clientsMap[phoneKey];
-    c.paidAmount += paidVal;
-    c.debtAmount = currentDebt; // Eng so'nggi qarz holati
-    if (manualTickets > 0) {
-      c.manualTickets += manualTickets;
-    }
-    if (!c.region && region) c.region = region;
-    if (!c.agent && agent) c.agent = agent;
-    if (!c.name && clientName) c.name = clientName;
+    item[4] += paid;
+    item[5] = Math.abs(rawDebt); // Eng so'nggi qarz holati
+    if (manualTickets > 0) item[6] += manualTickets;
+    if (!item[1] && clientName) item[1] = clientName;
+    if (!item[2] && region) item[2] = region;
+    if (!item[3] && agent) item[3] = agent;
   }
 
-  // Hisoblashlar: Biletlar, Reyting, Ehtimollik
-  var totalActiveTickets = 0;
+  return order.map(function(k) { return map[k]; });
+}
+
+function getMasterRows() {
+  var cache = CacheService.getScriptCache();
+  var count = Number(cache.get(MASTERS_CACHE_KEY + "_n"));
+  if (count > 0) {
+    var keys = [];
+    for (var i = 0; i < count; i++) keys.push(MASTERS_CACHE_KEY + "_" + i);
+    var parts = cache.getAll(keys);
+    var json = "";
+    var complete = true;
+    for (var j = 0; j < keys.length; j++) {
+      if (parts[keys[j]] === undefined || parts[keys[j]] === null) {
+        complete = false;
+        break;
+      }
+      json += parts[keys[j]];
+    }
+    if (complete) {
+      try {
+        return JSON.parse(json);
+      } catch (e) {}
+    }
+  }
+  return refreshMastersCache();
+}
+
+/**
+ * Jadvalni qayta o'qib keshga yozadi. installTriggers uni har 10 daqiqada ishga tushiradi,
+ * shunda foydalanuvchilar sekin "sovuq" o'qishga deyarli duch kelmaydi.
+ */
+function refreshMastersCache() {
+  var rows = readMasterRows();
+  try {
+    var json = JSON.stringify(rows);
+    var chunks = {};
+    var n = Math.max(1, Math.ceil(json.length / MASTERS_CACHE_CHUNK));
+    for (var i = 0; i < n; i++) {
+      chunks[MASTERS_CACHE_KEY + "_" + i] = json.substr(i * MASTERS_CACHE_CHUNK, MASTERS_CACHE_CHUNK);
+    }
+    chunks[MASTERS_CACHE_KEY + "_n"] = String(n);
+    CacheService.getScriptCache().putAll(chunks, MASTERS_CACHE_SECONDS);
+  } catch (e) {
+    Logger.log("Keshga yozib bo'lmadi: " + e.message);
+  }
+  return rows;
+}
+
+/**
+ * Jadval qo'lda tahrirlanganda keshni tozalaydi (oddiy trigger, o'rnatish shart emas)
+ */
+function onEdit(e) {
+  try {
+    var name = e && e.range ? e.range.getSheet().getName() : "";
+    if (name === ACTIVITY_SHEET || name === LEADS_SHEET) return;
+    CacheService.getScriptCache().remove(MASTERS_CACHE_KEY + "_n");
+  } catch (err) {}
+}
+
+function loadAndAggregateMasters() {
+  var config = getConfig();
+  var rows = getMasterRows();
+  var clientsMap = {};
   var clientList = [];
-  var phoneKeys = Object.keys(clientsMap);
+  var totalActiveTickets = 0;
+  var activeParticipants = 0;
 
-  for (var k = 0; k < phoneKeys.length; k++) {
-    var item = clientsMap[phoneKeys[k]];
-
-    // Biletlar soni: agar jadvalda qo'lda kiritilgan bo'lsa, o'shani olamiz;
-    // aks holda har $1,000 to'lov = 1 bilet
-    var tickets = item.manualTickets > 0 ? item.manualTickets : Math.floor(item.paidAmount / config.TICKET_PRICE);
-    var remainder = item.paidAmount % config.TICKET_PRICE;
-    var gapToNext = remainder === 0 ? config.TICKET_PRICE : (config.TICKET_PRICE - remainder);
-
-    // Qarz tekshiruvi: qarz DEBT_TOLERANCE dan oshmasa "qarzsiz"
-    var isDebtCleared = item.debtAmount <= config.DEBT_TOLERANCE;
-
-    // Qarzi bo'lsa biletlar NOFAOL (0 ta aktiv)
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var paid = roundMoney(r[4]);
+    var debt = roundMoney(r[5]);
+    var tickets = r[6] > 0 ? r[6] : Math.floor(paid / config.TICKET_PRICE);
+    var remainder = roundMoney(paid % config.TICKET_PRICE);
+    var isDebtCleared = debt <= config.DEBT_TOLERANCE;
     var activeTickets = isDebtCleared ? tickets : 0;
 
-    item.tickets = tickets;
-    item.activeTickets = activeTickets;
-    item.remainder = remainder;
-    item.gapToNextTicket = gapToNext;
-    item.isDebtCleared = isDebtCleared;
-
+    var item = {
+      phoneKey: r[0],
+      phoneFormatted: formatPhoneUz(r[0]),
+      name: r[1] || ("Mijoz " + String(r[0]).slice(-4)),
+      region: r[2] || "O'zbekiston",
+      agent: r[3] || "",
+      paidAmount: paid,
+      debtAmount: debt,
+      tickets: tickets,
+      activeTickets: activeTickets,
+      remainder: remainder,
+      gapToNextTicket: roundMoney(remainder === 0 ? config.TICKET_PRICE : config.TICKET_PRICE - remainder),
+      isDebtCleared: isDebtCleared
+    };
     totalActiveTickets += activeTickets;
+    if (activeTickets > 0) activeParticipants++;
+    clientsMap[item.phoneKey] = item;
     clientList.push(item);
   }
 
-  // Reyting saralash: Pul kirim (turnover) bo'yicha kamayish tartibida
+  // Reyting: Pul kirim bo'yicha kamayish tartibida
   clientList.sort(function(a, b) {
     if (b.paidAmount !== a.paidAmount) return b.paidAmount - a.paidAmount;
     return b.activeTickets - a.activeTickets;
   });
 
+  var regionCounters = {};
+  for (var k = 0; k < clientList.length; k++) {
+    var c = clientList[k];
+    c.rank = k + 1;
+    regionCounters[c.region] = (regionCounters[c.region] || 0) + 1;
+    c.regionRank = regionCounters[c.region];
+  }
+
   return {
     clientsMap: clientsMap,
+    clientList: clientList,
     totalActiveTickets: totalActiveTickets,
-    clientList: clientList
+    activeParticipants: activeParticipants,
+    regionTotals: regionCounters
   };
 }
 
@@ -487,229 +479,260 @@ function maskClientName(name, region, consent) {
   return firstLetter + "***";
 }
 
+/**
+ * Gipergeometrik ehtimol (0..1): K ta bilet tanlanganda t ta biletdan kamida bittasi chiqishi
+ */
+function drawProbability(t, T, K) {
+  if (t <= 0 || T <= 0 || K <= 0) return 0;
+  if (t >= T || T - t < K) return 1;
+  var product = 1;
+  for (var i = 0; i < K; i++) {
+    product *= (T - t - i) / (T - i);
+  }
+  return Math.max(0, Math.min(1, 1 - product));
+}
+
+function toPercent(p) {
+  return Number((p * 100).toFixed(2));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 5. HANDLERS: me, leaderboard, tickets, catalog, winners
+// 5. HANDLERS: bootstrap, me, leaderboard, tickets, winners, anketa
 // ═══════════════════════════════════════════════════════════════════════════
 
-function handleGetClient(phoneKey, token) {
-  var config = getConfig();
-  var timing = getRemainingTimeInMonth();
-  var dataObj = loadAndAggregateMasters();
-  var master = dataObj.clientsMap[phoneKey];
-
-  // Agar jadvalda bo'lmasa, yangi mijoz deb qaraladi
-  if (!master) {
-    master = {
-      phoneKey: phoneKey,
-      phoneFormatted: formatPhoneUz(phoneKey),
-      name: "Yangi Mijoz",
-      region: "O'zbekiston",
-      agent: "EPCO",
-      paidAmount: 0,
-      debtAmount: 0,
-      isDebtCleared: true,
-      tickets: 0,
-      activeTickets: 0,
-      remainder: 0,
-      gapToNextTicket: config.TICKET_PRICE
-    };
-  }
-
-  // Reytingdagi o'rin
-  var currentRank = 0;
-  for (var r = 0; r < dataObj.clientList.length; r++) {
-    if (dataObj.clientList[r].phoneKey === master.phoneKey) {
-      currentRank = r + 1;
-      break;
-    }
-  }
-  if (currentRank === 0) currentRank = dataObj.clientList.length + 1;
-
-  // Viloyatdagi o'rni
-  var rankInRegion = 1;
-  var regionTotal = 0;
-  for (var r2 = 0; r2 < dataObj.clientList.length; r2++) {
-    var c = dataObj.clientList[r2];
-    if (c.region === master.region) {
-      regionTotal++;
-      if (c.paidAmount > master.paidAmount) {
-        rankInRegion++;
-      }
-    }
-  }
-
-  // Rozilik holati (PropertiesService da saqlanadi). Mijoz o'zi rozilik
-  // bermaguncha ismi reytingda yashirin ("03 Andijon · H***").
-  var props = PropertiesService.getScriptProperties();
-  var consent = props.getProperty("consent_" + phoneKey) === "true";
-
-  // Ehtimollik P(t) = Gipergeometrik yoki (activeTickets / T) * 100
-  var T = dataObj.totalActiveTickets;
-  var K = config.SHOW_WINNERS_K || 30;
-  var probPercent = 0;
-  var probIfCleared = 0;
-
-  if (T > 0 && master.activeTickets > 0) {
-    // Gipergeometrik ehtimol
-    probPercent = calculateHypergeometricProb(master.activeTickets, T, K);
-  }
-  if (T > 0 && master.tickets > 0) {
-    probIfCleared = calculateHypergeometricProb(master.tickets, Math.max(T, master.tickets), K);
-  }
-
-  // Simulyator uchun o'rin thresholdlari
+function buildPromoConfig(dataObj, config) {
+  var timing = getMonthTiming();
   var thresholds = [];
-  var targetRanks = [1, 2, 3, 5, 10, 20, 50];
-  for (var tIdx = 0; tIdx < targetRanks.length; tIdx++) {
-    var rTarget = targetRanks[tIdx];
-    if (rTarget <= dataObj.clientList.length) {
-      var targetClient = dataObj.clientList[rTarget - 1];
-      thresholds.push({
-        rank: rTarget,
-        turnover: targetClient.paidAmount,
-        tickets: targetClient.tickets
-      });
-    }
-  }
+  [1, 3, 5, 10, 20, 50].forEach(function(rank) {
+    var c = dataObj.clientList[rank - 1];
+    if (c) thresholds.push({ rank: rank, minAmount: roundMoney(c.paidAmount + 1), label: rank + "-o'rin" });
+  });
 
-  var userObj = {
+  return {
+    totalShowWinners: config.SHOW_WINNERS_K,
+    totalConfirmedTicketsPool: dataObj.totalActiveTickets,
+    totalPrizePoolUsd: config.TOTAL_PRIZE_POOL_USD,
+    grandPrize: config.GRAND_PRIZE,
+    firstPlacePrize: config.FIRST_PLACE_PRIZE,
+    prizeScope: "republic",
+    startDate: config.PROMO_START,
+    endDate: config.PROMO_END,
+    currentMonthName: timing.monthName,
+    daysRemainingInMonth: timing.daysRemaining,
+    hoursRemainingInMonth: timing.hoursRemaining,
+    isLastDayOfMonth: timing.isLastDay,
+    timeRemainingLabel: timing.label,
+    currentDateFormatted: timing.dateFormatted,
+    rulesVideoUrl: config.RULES_VIDEO_URL,
+    supportPhone: config.SUPPORT_PHONE,
+    serverNow: new Date().toISOString(),
+    thresholds: thresholds
+  };
+}
+
+function buildClientStats(master, dataObj, config) {
+  var timing = getMonthTiming();
+  var list = dataObj.clientList;
+  var T = dataObj.totalActiveTickets;
+  var K = config.SHOW_WINNERS_K;
+  var t = master.activeTickets;
+
+  var pNow = drawProbability(t, T, K);
+  var pNext = drawProbability(t + 1, T + 1, K);
+  var poolIfCleared = master.isDebtCleared ? T : T + master.tickets;
+  var pIfCleared = drawProbability(master.tickets, poolIfCleared, K);
+  var avgTickets = Math.max(1, Math.round(T / Math.max(1, dataObj.activeParticipants)));
+  var pAvg = drawProbability(avgTickets, T, K);
+
+  var rank = master.rank || list.length + 1;
+  var paid = master.paidAmount;
+  var gapTo = function(index) {
+    var other = list[index];
+    return other ? roundMoney(Math.max(0, other.paidAmount - paid + 1)) : 0;
+  };
+
+  return {
+    confirmedAmount: paid,
+    paidAmount: paid,
+    debtAmount: master.debtAmount,
+    isDebtCleared: master.isDebtCleared,
+    activeTicketsCount: master.activeTickets,
+    pendingDebtTicketsCount: master.isDebtCleared ? 0 : master.tickets,
+    pendingAmount: 0,
+    returnedAmount: 0,
+    tickets: master.tickets,
+    gapToNextTicket: master.gapToNextTicket,
+    currentMonthRemainder: master.remainder,
+    currentRank: rank,
+    regionRank: master.regionRank || 0,
+    regionTotal: dataObj.regionTotals[master.region] || 0,
+    totalParticipants: list.length,
+    activeParticipants: dataObj.activeParticipants,
+    daysRemainingInMonth: timing.daysRemaining,
+    hoursRemainingInMonth: timing.hoursRemaining,
+    isMonthEndWarning: timing.daysRemaining <= 7,
+    isLastDayOfMonth: timing.isLastDay,
+    timeRemainingLabel: timing.label,
+    currentDateFormatted: timing.dateFormatted,
+    probPercent: toPercent(pNow),
+    probRelativeRatio: pAvg > 0 ? Number((pNow / pAvg).toFixed(2)) : 0,
+    probNextJump: {
+      newProb: toPercent(pNext),
+      relativeMultiplier: pNow > 0 ? Number((pNext / pNow).toFixed(2)) : 0,
+      absolutePointDelta: toPercent(pNext - pNow)
+    },
+    probFourMonthStreak: Number(((1 - Math.pow(1 - pNow, 4)) * 100).toFixed(1)),
+    probIfDebtCleared: toPercent(pIfCleared),
+    gapToNextRank: rank > 1 ? gapTo(rank - 2) : 0,
+    gapToTop10: rank > 10 ? gapTo(9) : 0,
+    gapToFirstPlace: rank > 1 ? gapTo(0) : 0
+  };
+}
+
+function buildUser(master, props) {
+  var consent = props["consent_" + master.phoneKey] === "true";
+  return {
     id: "usr_" + master.phoneKey,
     phone: master.phoneFormatted,
     name: master.name,
     maskedName: maskClientName(master.name, master.region, consent),
     segment: "station",
     leagueTier: master.paidAmount >= 5000 ? "gold" : (master.paidAmount >= 2000 ? "silver" : "bronze"),
-    region: master.region || "O'zbekiston",
+    region: master.region,
     isAnonymous: !consent,
-    telegramId: props.getProperty("tg_chat_" + phoneKey) || "",
-    growthPercent: 12.5
+    telegramId: props["tg_chat_" + master.phoneKey] || "",
+    growthPercent: 0
   };
+}
 
-  var statsObj = {
-    monthlyTurnoverUsd: master.paidAmount,
-    activeTicketsCount: master.activeTickets,
-    pendingRemainderUsd: master.remainder,
-    gapToNextTicket: master.gapToNextTicket,
-    debtAmountUsd: master.debtAmount,
-    isDebtCleared: master.isDebtCleared,
-    rank: currentRank,
-    rankInRegion: rankInRegion,
-    regionTotalMasters: Math.max(regionTotal, 1),
-    showWinProbability: probPercent,
-    probIfDebtCleared: probIfCleared,
-    totalConfirmedTicketsPool: T,
-    totalShowWinners: K,
-    isEligibleForTop1: master.isDebtCleared
-  };
-
-  var configObj = {
-    totalShowWinners: K,
-    totalConfirmedTicketsPool: T,
-    totalPrizePoolUsd: config.TOTAL_PRIZE_POOL_USD,
-    grandPrize: config.GRAND_PRIZE,
-    firstPlacePrize: config.FIRST_PLACE_PRIZE,
-    ticketPrice: config.TICKET_PRICE,
-    debtTolerance: config.DEBT_TOLERANCE,
-    debtorsInRanking: config.DEBTORS_IN_RANKING,
-    debtorsEligibleForTop1: config.DEBTORS_ELIGIBLE_FOR_TOP1,
-    promoStart: config.PROMO_START,
-    promoEnd: config.PROMO_END,
-    supportPhone: config.SUPPORT_PHONE,
-    rulesVideoUrl: config.RULES_VIDEO_URL,
-    botUsername: config.BOT_USERNAME,
-    serverNow: new Date().toISOString(),
-    thresholds: thresholds
-  };
-
+function buildLeaderboardEntry(c, rank, myPhoneKey, props) {
+  var consent = props["consent_" + c.phoneKey] === "true";
   return {
-    user: userObj,
-    stats: statsObj,
-    config: configObj
+    id: "lb_" + rank + "_" + (c.phoneKey === myPhoneKey ? "me" : rank),
+    rank: rank,
+    maskedName: maskClientName(c.name, c.region, consent),
+    segment: "station",
+    region: c.region,
+    tickets: c.activeTickets,
+    isDebtCleared: c.isDebtCleared,
+    growthPercent: 0,
+    isMe: Boolean(myPhoneKey) && c.phoneKey === myPhoneKey
   };
 }
 
 /**
- * Gipergeometrik ehtimol: P = 1 - C(T-t, K) / C(T, K)
+ * Top-50 va (agar unda bo'lmasa) mijozning o'z qatori. Boshqalarning to'lov summasi yuborilmaydi.
  */
-function calculateHypergeometricProb(t, T, K) {
-  if (t <= 0 || T <= 0 || K <= 0) return 0;
-  if (t >= T) return 100;
-  if (T <= K) return 100;
-  if (t >= (T - K + 1)) return 100;
-
-  var probNone = 1.0;
-  for (var i = 0; i < t; i++) {
-    probNone *= (T - K - i) / (T - i);
+function buildLeaderboard(dataObj, myPhoneKey, region, props) {
+  var list = region
+    ? dataObj.clientList.filter(function(c) { return c.region === region; })
+    : dataObj.clientList;
+  var entries = [];
+  var meIncluded = false;
+  for (var i = 0; i < list.length && i < LEADERBOARD_SIZE; i++) {
+    var entry = buildLeaderboardEntry(list[i], i + 1, myPhoneKey, props);
+    if (entry.isMe) meIncluded = true;
+    entries.push(entry);
   }
-  var p = (1.0 - probNone) * 100;
-  return Number(Math.max(0, Math.min(100, p)).toFixed(2));
+  if (myPhoneKey && !meIncluded) {
+    for (var j = LEADERBOARD_SIZE; j < list.length; j++) {
+      if (list[j].phoneKey === myPhoneKey) {
+        entries.push(buildLeaderboardEntry(list[j], j + 1, myPhoneKey, props));
+        break;
+      }
+    }
+  }
+  return entries;
 }
 
-function handleGetLeaderboard(scope, targetRegion) {
+function handleBootstrap(phoneKey) {
+  var config = getConfig();
   var dataObj = loadAndAggregateMasters();
-  var entries = [];
-  var list = dataObj.clientList;
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var master = dataObj.clientsMap[phoneKey];
 
-  if (scope === "region" && targetRegion) {
-    list = list.filter(function(x) { return x.region === targetRegion; });
-  }
+  recordActivity(phoneKey, "active");
 
-  var props = PropertiesService.getScriptProperties();
-
-  for (var i = 0; i < list.length; i++) {
-    var c = list[i];
-    var consent = props.getProperty("consent_" + c.phoneKey) === "true";
-    entries.push({
-      rank: i + 1,
-      maskedName: maskClientName(c.name, c.region, consent),
-      ticketsCount: c.activeTickets,
-      turnoverUsd: c.paidAmount,
-      segment: "station",
-      leagueTier: c.paidAmount >= 5000 ? "platinum" : (c.paidAmount >= 2000 ? "gold" : "silver"),
-      isMe: false,
-      hasDebt: !c.isDebtCleared,
-      eligibleForTop1: c.isDebtCleared,
-      region: c.region
-    });
+  if (!master) {
+    return {
+      registered: false,
+      phone: formatPhoneUz(phoneKey),
+      supportPhone: config.SUPPORT_PHONE,
+      leadSubmitted: Boolean(props["lead_" + phoneKey]),
+      config: buildPromoConfig(dataObj, config)
+    };
   }
 
   return {
-    entries: entries,
-    myRank: 0,
-    gapToNext: 0,
-    gapToTop10: 0,
-    gapToFirst: 0
+    registered: true,
+    user: buildUser(master, props),
+    stats: buildClientStats(master, dataObj, config),
+    config: buildPromoConfig(dataObj, config),
+    leaderboard: {
+      republic: buildLeaderboard(dataObj, phoneKey, null, props),
+      region: buildLeaderboard(dataObj, phoneKey, master.region, props)
+    },
+    tickets: buildTickets(master),
+    winners: handleGetWinners().winners
   };
 }
 
-function handleGetTickets(phoneKey) {
+function handleGetClient(phoneKey) {
+  var config = getConfig();
   var dataObj = loadAndAggregateMasters();
   var master = dataObj.clientsMap[phoneKey];
-  var tickets = [];
-
-  if (master && master.tickets > 0) {
-    var currentMonth = getCurrentMonth();
-    var prefix = "EPCO-" + currentMonth.replace("-", "") + "-";
-    for (var i = 1; i <= master.tickets; i++) {
-      var num = prefix + ("0000" + i).slice(-4);
-      tickets.push({
-        id: "tkt_" + num,
-        ticketNumber: num,
-        month: currentMonth,
-        amountPaid: DEFAULTS.TICKET_PRICE,
-        status: master.isDebtCleared ? "CONFIRMED" : "PENDING_DEBT",
-        issuedAt: new Date().toISOString(),
-        qrCodeUrl: "https://epco.uz/verify/" + num,
-        isEligible: master.isDebtCleared
-      });
-    }
+  if (!master) {
+    throw new Error("Mijoz bazada topilmadi");
   }
-
-  return { tickets: tickets };
+  var props = PropertiesService.getScriptProperties().getProperties();
+  return {
+    user: buildUser(master, props),
+    stats: buildClientStats(master, dataObj, config),
+    config: buildPromoConfig(dataObj, config)
+  };
 }
 
-function handleGetCatalog() {
-  return { products: DEFAULTS.CATALOG };
+function handleGetLeaderboard(scope, targetRegion, myPhoneKey) {
+  var dataObj = loadAndAggregateMasters();
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var region = scope === "region" && targetRegion ? String(targetRegion) : null;
+  return { entries: buildLeaderboard(dataObj, myPhoneKey, region, props) };
+}
+
+/**
+ * Bilet raqami: EPCO-YYMM-<telefon base36>-NNN. Har bir mijoz uchun noyob va
+ * /verify sahifasida haqiqatan tekshiriladi.
+ */
+function ticketNumberFor(phoneKey, index, yymm) {
+  return "EPCO-" + yymm + "-" + parseInt(phoneKey, 10).toString(36).toUpperCase() + "-" + ("00" + index).slice(-3);
+}
+
+function currentYymm() {
+  return getCurrentMonth().replace("-", "").slice(2);
+}
+
+function buildTickets(master) {
+  var tickets = [];
+  var yymm = currentYymm();
+  var issued = new Date().toISOString();
+  for (var i = 1; i <= master.tickets; i++) {
+    var num = ticketNumberFor(master.phoneKey, i, yymm);
+    tickets.push({
+      id: "tkt_" + num,
+      ticketNumber: num,
+      orderId: "",
+      dateIssued: issued,
+      qrCodeUrl: "",
+      status: master.isDebtCleared ? "valid" : "pending_debt",
+      isDebtCleared: master.isDebtCleared
+    });
+  }
+  return tickets;
+}
+
+function handleGetTickets(phoneKey) {
+  var master = loadAndAggregateMasters().clientsMap[phoneKey];
+  return { tickets: master ? buildTickets(master) : [] };
 }
 
 function handleGetWinners() {
@@ -723,47 +746,93 @@ function handleUpdateConsent(phoneKey, consent) {
 }
 
 function handleVerifyTicket(ticketNumber) {
-  if (!ticketNumber) {
-    return { valid: false, message: "Bilet raqami kiritilmadi" };
+  var number = String(ticketNumber || "").trim().toUpperCase();
+  var match = number.match(/^EPCO-(\d{4})-([0-9A-Z]{1,8})-(\d{3})$/);
+  if (!match) {
+    return { valid: false, ticketNumber: number, message: "Bilet raqami noto'g'ri formatda" };
   }
+  if (match[1] !== currentYymm()) {
+    return { valid: false, ticketNumber: number, message: "Bu bilet joriy oyga tegishli emas" };
+  }
+
+  var phoneKey = ("000000000" + parseInt(match[2], 36)).slice(-9);
+  var index = Number(match[3]);
+  var master = loadAndAggregateMasters().clientsMap[phoneKey];
+  if (!master || index < 1 || index > master.tickets) {
+    return { valid: false, ticketNumber: number, message: "Bunday bilet topilmadi" };
+  }
+
   return {
     valid: true,
-    ticketNumber: ticketNumber,
+    ticketNumber: number,
     month: getCurrentMonth(),
-    status: "CONFIRMED",
-    ownerMasked: "01 Tashkent · U***",
-    message: "Haqiqiy aksiya bileti"
+    status: master.isDebtCleared ? "CONFIRMED" : "PENDING_DEBT",
+    ownerMasked: maskClientName(master.name, master.region, false),
+    message: master.isDebtCleared ? "Haqiqiy va faol aksiya bileti" : "Haqiqiy bilet, lekin egasining qarzi yopilmagani uchun hozircha nofaol"
   };
 }
 
-function handleCreateOrder(phoneKey, items) {
+// ═══════════════════════════════════════════════════════════════════════════
+// 5.1 YANGI MIJOZ ANKETASI ("Yangi_mijozlar" varag'i)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var LEADS_SHEET = "Yangi_mijozlar";
+var LEAD_HEADERS = [
+  "Sana", "Telefon", "Ism", "Faoliyat turi", "Do'kon / moyxona nomi", "Viloyat",
+  "Tuman / shahar", "Oylik hajm", "Hozirgi moy brendi", "Qayerdan bildi", "Telegram ID", "Holat"
+];
+
+function getLeadsSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(LEADS_SHEET);
+  if (sheet) return sheet;
+
+  sheet = ss.insertSheet(LEADS_SHEET, ss.getSheets().length);
+  sheet.getRange(1, 1, 1, LEAD_HEADERS.length).setValues([LEAD_HEADERS])
+    .setFontWeight("bold").setBackground("#06154A").setFontColor("#FBBF24");
+  sheet.setFrozenRows(1);
+  sheet.getRange("A:A").setNumberFormat("dd.mm.yyyy hh:mm");
+  sheet.getRange("B:B").setNumberFormat("@");
+  sheet.getRange("K:K").setNumberFormat("@");
+  return sheet;
+}
+
+function handleSubmitLead(phoneKey, lead) {
+  var name = sheetText(lead.name, 100);
+  var activity = sheetText(lead.activity, 60);
+  if (!name || !activity) {
+    throw new Error("Ismingiz va faoliyat turini kiriting");
+  }
+
   var config = getConfig();
-  var orderNumber = "ORD-" + Date.now().toString().slice(-6);
-  var total = 0;
+  var props = PropertiesService.getScriptProperties();
+  var row = [
+    new Date(),
+    formatPhoneUz(phoneKey),
+    name,
+    activity,
+    sheetText(lead.shopName, 120),
+    sheetText(lead.region, 60),
+    sheetText(lead.district, 80),
+    sheetText(lead.volume, 60),
+    sheetText(lead.brands, 120),
+    sheetText(lead.source, 60),
+    props.getProperty("tg_chat_" + phoneKey) || "",
+    "Yangi"
+  ];
+  getLeadsSheet().appendRow(row);
+  props.setProperty("lead_" + phoneKey, new Date().toISOString());
+  recordActivity(phoneKey, "lead");
 
-  for (var i = 0; i < items.length; i++) {
-    var p = DEFAULTS.CATALOG.find(function(x) { return x.id === items[i].productId; });
-    if (p) {
-      total += p.priceUsd * (items[i].quantity || 1);
-    }
-  }
-
-  // Telegram orqali adminga xabar yuborish (agar sozlagan bo'lsa)
   if (config.BOT_TOKEN && config.ADMIN_CHAT_ID) {
-    try {
-      var msg = "🛒 Yangi Buyurtma #" + orderNumber + "\n" +
-                "👤 Mijoz: " + formatPhoneUz(phoneKey) + "\n" +
-                "💰 Jami summa: $" + total;
-      sendTelegramMessage(config.ADMIN_CHAT_ID, msg);
-    } catch (e) {}
+    sendTelegramMessage(config.ADMIN_CHAT_ID,
+      "🆕 Yangi mijoz anketasi\n" +
+      "📞 " + formatPhoneUz(phoneKey) + "\n" +
+      "👤 " + name + " — " + activity + "\n" +
+      "📍 " + (lead.region || "-") + ", " + (lead.district || "-"));
   }
 
-  return {
-    orderNumber: orderNumber,
-    totalAmount: total,
-    status: "CREATED",
-    message: "Buyurtma muvaffaqiyatli qabul qilindi"
-  };
+  return { submitted: true, supportPhone: config.SUPPORT_PHONE };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -856,14 +925,7 @@ function handleRequestCode(phone) {
     return { status: "INVALID_PHONE", message: "Telefon raqami noto'g'ri" };
   }
 
-  if (!loadAndAggregateMasters().clientsMap[phoneKey]) {
-    return {
-      status: "NOT_FOUND",
-      message: "Bunday mijoz bazada topilmadi",
-      supportPhone: DEFAULTS.SUPPORT_PHONE
-    };
-  }
-
+  // Bazada yo'q yangi mijozlar ham kiradi — ularga faqat anketa va aloqa raqami ko'rsatiladi.
   // Kod faqat shu raqam egasi Telegram orqali tasdiqlagan chatga yuboriladi
   var chatId = PropertiesService.getScriptProperties().getProperty("tg_chat_" + phoneKey);
   if (!chatId) {
@@ -922,14 +984,9 @@ function handleVerifyCode(phone, code) {
   cache.remove("otp_" + phoneKey);
   cache.remove("otp_try_" + phoneKey);
   recordActivity(phoneKey, "login");
-  var token = generateSessionToken(phoneKey);
-  var clientData = handleGetClient(phoneKey, token);
-
   return {
-    token: token,
-    user: clientData.user,
-    stats: clientData.stats,
-    config: clientData.config
+    token: generateSessionToken(phoneKey),
+    registered: Boolean(loadAndAggregateMasters().clientsMap[phoneKey])
   };
 }
 
@@ -969,14 +1026,9 @@ function handleTelegramAuth(initData) {
   }
 
   recordActivity(phoneKey, "login", tgUser);
-  var token = generateSessionToken(phoneKey);
-  var clientData = handleGetClient(phoneKey, token);
-
   return {
-    token: token,
-    user: clientData.user,
-    stats: clientData.stats,
-    config: clientData.config
+    token: generateSessionToken(phoneKey),
+    registered: Boolean(loadAndAggregateMasters().clientsMap[phoneKey])
   };
 }
 
@@ -1168,17 +1220,25 @@ function sendTelegramContactButton(chatId, text) {
 var ACTIVITY_SHEET = "Ulanishlar";
 var ACTIVITY_HEADERS = [
   "Telefon", "Mijoz", "Hudud", "Agent", "Telegram ID", "Telegram username",
-  "Botga ulangan", "Oxirgi kirish", "Oxirgi faollik", "Kirishlar soni"
+  "Botga ulangan", "Oxirgi kirish", "Oxirgi faollik", "Kirishlar soni", "Holat"
 ];
-var ACTIVITY_COL = { TG_ID: 5, TG_USER: 6, LINKED: 7, LOGIN: 8, ACTIVE: 9, LOGINS: 10 };
+var ACTIVITY_COL = { NAME: 2, REGION: 3, AGENT: 4, TG_ID: 5, TG_USER: 6, LINKED: 7, LOGIN: 8, ACTIVE: 9, LOGINS: 10, STATUS: 11 };
 var ACTIVITY_THROTTLE_SECONDS = 600; // "Oxirgi faollik" ko'pi bilan 10 daqiqada bir yangilanadi
 
 function getActivitySheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(ACTIVITY_SHEET);
-  if (sheet) return sheet;
+  if (sheet) {
+    // 2.3 dan oldin yaratilgan varaqda "Holat" ustuni yo'q edi
+    if (!sheet.getRange(1, ACTIVITY_COL.STATUS).getValue()) {
+      sheet.getRange(1, ACTIVITY_COL.STATUS).setValue(ACTIVITY_HEADERS[ACTIVITY_COL.STATUS - 1])
+        .setFontWeight("bold").setBackground("#06154A").setFontColor("#FBBF24");
+    }
+    return sheet;
+  }
 
-  sheet = ss.insertSheet(ACTIVITY_SHEET);
+  // Oxiriga qo'shiladi — "Ustalar" birinchi varaq bo'lib qolishi kerak
+  sheet = ss.insertSheet(ACTIVITY_SHEET, ss.getSheets().length);
   sheet.getRange(1, 1, 1, ACTIVITY_HEADERS.length).setValues([ACTIVITY_HEADERS])
     .setFontWeight("bold").setBackground("#06154A").setFontColor("#FBBF24");
   sheet.setFrozenRows(1);
@@ -1186,19 +1246,20 @@ function getActivitySheet() {
   sheet.getRange("E:E").setNumberFormat("@");
   sheet.getRange("G:I").setNumberFormat("dd.mm.yyyy hh:mm");
   // Xulosa sarlavha qatorida — ma'lumot qatorlariga xalaqit bermaydi
-  sheet.getRange("L1").setValue("Jami ulangan:");
-  sheet.getRange("M1").setFormula("=COUNTA(A2:A)");
-  sheet.getRange("N1").setValue("Bugun faol:");
-  sheet.getRange("O1").setFormula("=COUNTIF(I2:I,\">=\"&TODAY())");
-  sheet.getRange("L1:O1").setFontWeight("bold");
+  sheet.getRange("M1").setValue("Jami ulangan:");
+  sheet.getRange("N1").setFormula("=COUNTA(A2:A)");
+  sheet.getRange("O1").setValue("Bugun faol:");
+  sheet.getRange("P1").setFormula("=COUNTIF(I2:I,\">=\"&TODAY())");
+  sheet.getRange("M1:P1").setFontWeight("bold");
   return sheet;
 }
 
 /**
- * event: "link" (botga kontakt ulashdi), "login" (saytga kirdi), "active" (ilovadan foydalanmoqda)
- * Xatolik bo'lsa ham kirish jarayoni to'xtamaydi.
+ * event: "link" (botga kontakt ulashdi), "login" (saytga kirdi), "active" (ilovadan foydalanmoqda),
+ * "lead" (yangi mijoz anketa to'ldirdi). Xatolik bo'lsa ham kirish jarayoni to'xtamaydi.
  */
 function recordActivity(phoneKey, event, tgUser) {
+  var lock = null;
   try {
     if (event === "active") {
       var cache = CacheService.getScriptCache();
@@ -1206,6 +1267,14 @@ function recordActivity(phoneKey, event, tgUser) {
       cache.put("act_" + phoneKey, "1", ACTIVITY_THROTTLE_SECONDS);
     }
 
+    // Bir vaqtda kelgan ikki so'rov bitta mijozga ikki qator ochmasligi uchun
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) {
+      lock = null;
+      return;
+    }
+
+    var master = loadAndAggregateMasters().clientsMap[phoneKey];
     var sheet = getActivitySheet();
     var lastRow = sheet.getLastRow();
     var row = -1;
@@ -1218,14 +1287,22 @@ function recordActivity(phoneKey, event, tgUser) {
         }
       }
     }
-
     if (row === -1) {
-      var master = loadAndAggregateMasters().clientsMap[phoneKey] || {};
       row = Math.max(lastRow, 1) + 1;
-      sheet.getRange(row, 1, 1, ACTIVITY_HEADERS.length).setValues([[
-        formatPhoneUz(phoneKey), master.name || "", master.region || "", master.agent || "",
-        "", "", "", "", "", 0
+      sheet.getRange(row, 1, 1, ACTIVITY_COL.LOGINS).setValues([[
+        formatPhoneUz(phoneKey), "", "", "", "", "", "", "", "", 0
       ]]);
+    }
+
+    // Mijoz ma'lumotlari har safar "Ustalar"dan yangilanadi (bo'sh qolgan qatorlar ham to'ladi)
+    var statusCell = sheet.getRange(row, ACTIVITY_COL.STATUS);
+    if (master) {
+      sheet.getRange(row, ACTIVITY_COL.NAME, 1, 3).setValues([[master.name, master.region, master.agent]]);
+      statusCell.setValue("Bazada");
+    } else if (event === "lead" || statusCell.getValue() === "Anketa to'ldirdi") {
+      statusCell.setValue("Anketa to'ldirdi");
+    } else {
+      statusCell.setValue("Yangi (bazada yo'q)");
     }
 
     var now = new Date();
@@ -1240,6 +1317,10 @@ function recordActivity(phoneKey, event, tgUser) {
     sheet.getRange(row, ACTIVITY_COL.ACTIVE).setValue(now);
   } catch (e) {
     Logger.log("recordActivity xatolik: " + e.message);
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (lErr) {}
+    }
   }
 }
 
@@ -1258,16 +1339,21 @@ function setupSheets() {
     return;
   }
 
-  var sheet = ss.getSheetByName("Ustalar");
+  var sheet = getMasterSheet(ss);
   if (!sheet) {
-    Logger.log("OGOHLANTIRISH: 'Ustalar' nomli varaq topilmadi. Mavjud birinchi varaq ishlatiladi.");
-    sheet = ss.getSheets()[0];
+    Logger.log("XATO: mijozlar varag'i topilmadi!");
+    return;
+  }
+  if (sheet.getName() !== "Ustalar") {
+    Logger.log("OGOHLANTIRISH: 'Ustalar' nomli varaq topilmadi. '" + sheet.getName() + "' varag'i ishlatiladi.");
   }
 
-  Logger.log("Muvaffaqiyatli: 'Ustalar' varag'i topildi. Qatorlar soni: " + sheet.getLastRow());
+  var rows = refreshMastersCache();
+  Logger.log("Muvaffaqiyatli: '" + sheet.getName() + "' varag'idan " + rows.length + " ta mijoz o'qildi.");
 
   getActivitySheet();
-  Logger.log("'" + ACTIVITY_SHEET + "' varag'i tayyor.");
+  getLeadsSheet();
+  Logger.log("'" + ACTIVITY_SHEET + "' va '" + LEADS_SHEET + "' varaqlari tayyor.");
 }
 
 /**
@@ -1331,11 +1417,15 @@ function cleanupSessions() {
 
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (trigger.getHandlerFunction() === "cleanupSessions") {
+    var handler = trigger.getHandlerFunction();
+    if (handler === "cleanupSessions" || handler === "refreshMastersCache") {
       ScriptApp.deleteTrigger(trigger);
     }
   });
   ScriptApp.newTrigger("cleanupSessions").timeBased().everyDays(1).atHour(4).create();
+  // Kesh doim "issiq" turadi — ilova jadvalni o'qishni kutmaydi
+  ScriptApp.newTrigger("refreshMastersCache").timeBased().everyMinutes(10).create();
   cleanupSessions();
-  Logger.log("Kunlik cleanupSessions triggeri o'rnatildi.");
+  refreshMastersCache();
+  Logger.log("Triggerlar o'rnatildi: kunlik cleanupSessions, har 10 daqiqada refreshMastersCache.");
 }

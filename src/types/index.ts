@@ -75,6 +75,39 @@ export interface ClientStats {
   gapToNextRank: number;
   gapToTop10: number;
   gapToFirstPlace: number;
+  regionRank?: number; // viloyatdagi o'rin
+  regionTotal?: number; // viloyatdagi ishtirokchilar soni
+}
+
+/** Ilova ochilganda bitta so'rov bilan keladigan ma'lumotlar (Apps Script "bootstrap") */
+export type BootstrapData =
+  | {
+      registered: true;
+      user: User;
+      stats: ClientStats;
+      config: PromoConfig;
+      leaderboard: { republic: LeaderboardEntry[]; region: LeaderboardEntry[] };
+      tickets: Ticket[];
+      winners: PastWinner[];
+    }
+  | {
+      registered: false;
+      phone: string;
+      supportPhone: string;
+      leadSubmitted: boolean;
+      config: PromoConfig;
+    };
+
+/** Bazada yo'q yangi mijoz anketasi */
+export interface LeadForm {
+  name: string;
+  activity: string;
+  shopName: string;
+  region: string;
+  district: string;
+  volume: string;
+  brands: string;
+  source: string;
 }
 
 export type ProductCategory = 'oils' | 'filters' | 'antifreeze' | 'transmission' | 'special';

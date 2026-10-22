@@ -25,26 +25,43 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 }) => {
   const t = translations[language];
 
-  // Check if current user is within Top 10
-  const isMeInTop10 = stats.currentRank <= 10;
+  const isMeInTop10 = stats.currentRank > 0 && stats.currentRank <= 10;
+  const myEntry = entries.find((e) => e.isMe);
+  const isRegion = activeScope === 'region';
+  const myRank = isRegion ? myEntry?.rank || stats.regionRank || 0 : stats.currentRank;
+  const totalInScope = isRegion ? stats.regionTotal || entries.length : stats.totalParticipants;
 
   return (
     <div className="space-y-4">
-      {/* Title & Privacy Badge */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className={`font-black text-white ${isLargeText ? 'text-2xl' : 'text-xl'}`}>
-            {t.leaderboardTitle}
-          </h2>
-          <p className="text-xs text-white/70">
-            Joriy oyning to'lovlari (PUL KIRIM) bo'yicha saralangan
-          </p>
+      {/* Title */}
+      <div>
+        <h2 className={`font-black text-white ${isLargeText ? 'text-2xl' : 'text-xl'}`}>
+          {t.leaderboardTitle}
+        </h2>
+        <p className="text-xs text-white/70">
+          Shu oydagi to'lovlar (pul kirim) bo'yicha
+        </p>
+      </div>
+
+      {/* Mening o'rnim */}
+      <div className="glass-card-gold p-4 rounded-3xl border border-amber-400/50 flex items-center gap-4">
+        <div className="w-20 h-20 shrink-0 rounded-2xl bg-[#0B0F19] border border-amber-400/70 flex flex-col items-center justify-center shadow-inner">
+          <span className="text-[10px] text-amber-300/80 font-bold uppercase">O'rin</span>
+          <span className="text-3xl font-black text-amber-300 tabular-nums leading-none">{myRank || '—'}</span>
         </div>
-        <div className="text-right">
-          <span className="text-[10px] text-white/50 block font-medium">Viloyat:</span>
-          <span className="text-xs font-bold text-[#FFC933] uppercase">
-            {user.region}
-          </span>
+        <div className="min-w-0 space-y-1">
+          <div className="text-sm text-slate-200">
+            {isRegion ? user.region : 'Respublika bo\'yicha'}:{' '}
+            <b className="text-white tabular-nums">{totalInScope.toLocaleString('en-US')}</b> ishtirokchi
+          </div>
+          {!isRegion && stats.regionRank ? (
+            <div className="text-xs text-slate-300">
+              Viloyatingizda: <b className="text-white">{stats.regionRank}-o'rin</b> / {stats.regionTotal}
+            </div>
+          ) : null}
+          <div className={`text-xs font-bold ${stats.isDebtCleared ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {stats.isDebtCleared ? `✓ ${stats.activeTicketsCount} ta faol bilet` : '⚠ Qarz yopilmagan — biletlar nofaol'}
+          </div>
         </div>
       </div>
 
@@ -92,7 +109,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             Keyingi o'ringacha
           </div>
           <div className="text-base sm:text-lg font-black text-amber-400 mt-1 tabular-nums">
-            {stats.currentRank <= 1 ? '🥇 1-o\'rin' : `+$${stats.gapToNextRank}`}
+            {stats.currentRank <= 1 ? '🥇 1-o\'rin' : `+$${Math.round(stats.gapToNextRank).toLocaleString('en-US')}`}
           </div>
           <div className="text-[9px] text-slate-400">{stats.currentRank <= 1 ? 'Yetakchisiz' : 'kerakli to\'lov'}</div>
         </div>
@@ -103,7 +120,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             Top-10 gacha
           </div>
           <div className="text-base sm:text-lg font-black text-emerald-400 mt-1 tabular-nums">
-            {isMeInTop10 ? '✓ Ichida' : `+$${stats.gapToTop10}`}
+            {isMeInTop10 ? '✓ Ichida' : `+$${Math.round(stats.gapToTop10).toLocaleString('en-US')}`}
           </div>
           <div className="text-[9px] text-emerald-300/70">
             {isMeInTop10 ? 'Top-10 dasiz' : 'kerakli to\'lov'}
@@ -116,7 +133,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             1-o'ringacha (iPhone)
           </div>
           <div className="text-base sm:text-lg font-black text-rose-400 mt-1 tabular-nums">
-            {stats.currentRank === 1 ? '🎉 Sizda' : `+$${stats.gapToFirstPlace}`}
+            {stats.currentRank === 1 ? '🎉 Sizda' : `+$${Math.round(stats.gapToFirstPlace).toLocaleString('en-US')}`}
           </div>
           <div className="text-[9px] text-rose-300/70">
             {stats.currentRank === 1 ? 'Yetakchi' : 'kerakli to\'lov'}
@@ -132,12 +149,19 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         </div>
 
         <div className="divide-y divide-white/5 mt-1">
-          {entries.map((entry) => {
+          {entries.length === 0 && (
+            <div className="py-6 text-center text-sm text-slate-400">Hozircha ishtirokchilar yo'q</div>
+          )}
+          {entries.map((entry, index) => {
             const isMe = entry.isMe;
+            const hasGap = index > 0 && entry.rank > entries[index - 1].rank + 1;
 
             return (
+              <React.Fragment key={entry.id}>
+              {hasGap && (
+                <div className="py-1 text-center text-slate-500 tracking-[0.4em]">···</div>
+              )}
               <div
-                key={entry.id}
                 className={`flex items-center justify-between py-2.5 px-2 rounded-xl transition-all duration-300 ${
                   isMe
                     ? 'bg-amber-400/20 border border-amber-400/60 shadow-[0_0_15px_rgba(245,158,11,0.25)] scale-[1.01]'
@@ -200,7 +224,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                     <span className="font-extrabold text-white text-xs sm:text-sm tabular-nums">
                       {entry.tickets} <span className="text-[10px] text-slate-400 font-normal">bilet</span>
                     </span>
-                    {entry.isDebtCleared ? (
+                    {entry.isDebtCleared !== false ? (
                       <span className="text-[9px] text-emerald-400 block font-bold">✓ Faol biletlar</span>
                     ) : (
                       <span className="text-[9px] text-rose-400 block font-bold">⚠ Qarzda</span>
@@ -208,43 +232,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                   </div>
                 </div>
               </div>
+              </React.Fragment>
             );
           })}
         </div>
       </div>
-
-      {/* Pinned Bottom User Bar if outside Top-10 */}
-      {!isMeInTop10 && (
-        <div className="glass-card-gold p-3.5 rounded-2xl border border-amber-400/60 shadow-2xl flex items-center justify-between animate-in fade-in slide-in-from-bottom-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-[#0B0F19] text-amber-400 border border-amber-400 flex items-center justify-center font-extrabold text-xs shrink-0 shadow-inner">
-              {stats.currentRank}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-white text-sm truncate">
-                  {user.isAnonymous ? t.anonymousUser : user.name}
-                </span>
-                <span className="bg-amber-400 text-black text-[9px] font-black px-1.5 py-0.2 rounded">
-                  {t.myPositionBadge}
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-300">
-                Top-10 ga chiqish uchun: <strong className="text-emerald-400">+${stats.gapToTop10}</strong>
-              </span>
-            </div>
-          </div>
-
-          <div className="text-right shrink-0">
-            <div className="text-sm font-extrabold text-white tabular-nums">
-              {stats.tickets} <span className="text-[10px] text-white/70">bilet</span>
-            </div>
-            <span className={`text-[10px] font-semibold block ${stats.isDebtCleared ? 'text-emerald-300' : 'text-rose-300'}`}>
-              {stats.isDebtCleared ? '✓ Biletlar faol' : '⚠ Qarz yopilmagan'}
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Privacy Guarantee Note */}
       <div className="p-3 bg-black/30 rounded-2xl text-[11px] text-white/60 border border-white/5 flex items-start gap-2">

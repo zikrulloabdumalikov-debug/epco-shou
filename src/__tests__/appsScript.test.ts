@@ -29,6 +29,13 @@ const FORMAT_METHODS = ['setFontWeight', 'setBackground', 'setFontColor', 'setNu
 /** Oddiy jadval mock'i: 1-indeksli katakchalar */
 class GridSheet {
   cells: any[][] = [];
+  constructor(private name = 'Sheet') {}
+  getName() {
+    return this.name;
+  }
+  appendRow(values: any[]) {
+    this.cells[this.getLastRow()] = values.slice();
+  }
   private cell(r: number, c: number) {
     return this.cells[r - 1]?.[c - 1] ?? '';
   }
@@ -79,10 +86,15 @@ function createEnv() {
   const cache = new Map<string, string>();
   const sent: { url: string; payload: any }[] = [];
 
+  const stats = { masterReads: 0 };
   const ustalar = {
+    getName: () => 'Ustalar',
     getLastRow: () => ROWS.length + 1,
     getLastColumn: () => 9,
-    getRange: () => ({ getValues: () => ROWS.map((r) => r.slice()) }),
+    getRange: () => {
+      stats.masterReads++;
+      return { getValues: () => ROWS.map((r) => r.slice()) };
+    },
   };
   const sheets: Record<string, any> = { Ustalar: ustalar };
 
@@ -106,7 +118,13 @@ function createEnv() {
         };
         return blob;
       },
-      formatDate: () => '2026-10',
+      // Toshkent vaqti (UTC+5) bo'yicha "yyyy-MM" va "yyyy-M-d-H" formatlari
+      formatDate: (date: Date, _tz: string, fmt: string) => {
+        const d = new Date(date.getTime() + 5 * 3600 * 1000);
+        const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate(), h = d.getUTCHours();
+        if (fmt === 'yyyy-MM') return `${y}-${String(m).padStart(2, '0')}`;
+        return `${y}-${m}-${day}-${h}`;
+      },
       base64Encode: (bytes: number[]) => fromSigned(bytes).toString('base64'),
     },
     PropertiesService: {
@@ -122,9 +140,11 @@ function createEnv() {
         get: (k: string) => (cache.has(k) ? cache.get(k)! : null),
         put: (k: string, v: string) => cache.set(k, String(v)),
         remove: (k: string) => cache.delete(k),
+        getAll: (keys: string[]) => Object.fromEntries(keys.filter((k) => cache.has(k)).map((k) => [k, cache.get(k)])),
+        putAll: (obj: Record<string, string>) => Object.entries(obj).forEach(([k, v]) => cache.set(k, String(v))),
       }),
     },
-    LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => ({ waitLock: () => {}, tryLock: () => true, releaseLock: () => {} }) },
     HtmlService: { createHtmlOutput: (content: string) => ({ content, kind: 'html' }) },
     ContentService: {
       MimeType: { JSON: 'json' },
@@ -134,7 +154,7 @@ function createEnv() {
       getActiveSpreadsheet: () => ({
         getSheetByName: (name: string) => sheets[name] || null,
         getSheets: () => Object.values(sheets),
-        insertSheet: (name: string) => (sheets[name] = new GridSheet()),
+        insertSheet: (name: string) => (sheets[name] = new GridSheet(name)),
       }),
     },
     UrlFetchApp: {
@@ -177,7 +197,13 @@ function createEnv() {
     return msg ? msg.payload.text.match(/\*(\d{6})\*/)[1] : null;
   };
 
-  return { ctx, props, cache, sent, sheets, api, webhook, shareContact, lastCode };
+  const login = (userId: number, phone: string) => {
+    shareContact(userId, phone);
+    api({ action: 'auth.requestCode', phone });
+    return api({ action: 'auth.verifyCode', phone, code: lastCode() }).data.token as string;
+  };
+
+  return { ctx, props, cache, sent, sheets, stats, api, webhook, shareContact, lastCode, login };
 }
 
 function signInitData(fields: Record<string, string>, botToken = BOT_TOKEN) {
@@ -206,9 +232,19 @@ describe('Apps Script: telefon raqami bilan kirish', () => {
   });
 
   it('jadvalda yo\'q raqam -> NOT_FOUND, botga ulanmagan raqam -> NEED_PHONE_LINK', () => {
-    expect(env.api({ action: 'auth.requestCode', phone: '+998 99 999 99 99' }).data.status).toBe('NOT_FOUND');
     expect(env.api({ action: 'auth.requestCode', phone: '+998 90 000 00 01' }).data.status).toBe('NEED_PHONE_LINK');
     expect(env.lastCode()).toBeNull();
+  });
+
+  it('bazada yo\'q yangi mijoz ham kiradi, lekin registered: false', () => {
+    env.shareContact(555, '+998999999999');
+    expect(env.api({ action: 'auth.requestCode', phone: '+998999999999' }).data.status).toBe('CODE_SENT');
+    const login = env.api({ action: 'auth.verifyCode', phone: '+998999999999', code: env.lastCode() });
+    expect(login.data.registered).toBe(false);
+    const boot = env.api({ action: 'bootstrap', token: login.data.token }).data;
+    expect(boot.registered).toBe(false);
+    expect(boot.stats).toBeUndefined();
+    expect(boot.leaderboard).toBeUndefined();
   });
 
   it('o\'z kontaktini ulashgan foydalanuvchi kodni oladi va kiradi', () => {
@@ -325,7 +361,8 @@ describe('Apps Script: Telegram Mini App (HMAC)', () => {
     const res = env.api({ action: 'auth.telegram', initData: signInitData(fieldsFor(111)) });
     expect(res.success).toBe(true);
     expect(res.data.token).toMatch(/^epco_tok_/);
-    expect(res.data.user.name).toBe('Alisher Usta');
+    expect(res.data.registered).toBe(true);
+    expect(env.api({ action: 'bootstrap', token: res.data.token }).data.user.name).toBe('Alisher Usta');
   });
 
   it('"signature" maydoni bor yangi formatdagi initData ham qabul qilinadi', () => {
@@ -405,11 +442,12 @@ describe('Apps Script: "Ulanishlar" varag\'i', () => {
 
     const sheet = env.sheets['Ulanishlar'];
     expect(sheet).toBeDefined();
-    expect(sheet.getRange(1, 1, 1, 10).getValues()[0]).toEqual([
+    expect(sheet.getRange(1, 1, 1, 11).getValues()[0]).toEqual([
       'Telefon', 'Mijoz', 'Hudud', 'Agent', 'Telegram ID', 'Telegram username',
-      'Botga ulangan', 'Oxirgi kirish', 'Oxirgi faollik', 'Kirishlar soni',
+      'Botga ulangan', 'Oxirgi kirish', 'Oxirgi faollik', 'Kirishlar soni', 'Holat',
     ]);
-    expect(sheet.getRange('M1').getValue()).toBe('=COUNTA(A2:A)');
+    expect(sheet.getRange('N1').getValue()).toBe('=COUNTA(A2:A)');
+    expect(sheet.getRange(2, 11).getValue()).toBe('Bazada');
 
     let row = sheet.getRange(2, 1, 1, 10).getValues()[0];
     expect(row.slice(0, 6)).toEqual(['+998 (90) 000-00-01', 'Alisher Usta', '01 Tashkent', 'AG-1', '111', '@user111']);
@@ -419,7 +457,7 @@ describe('Apps Script: "Ulanishlar" varag\'i', () => {
 
     env.api({ action: 'auth.requestCode', phone: '+998900000001' });
     const { token } = env.api({ action: 'auth.verifyCode', phone: '+998900000001', code: env.lastCode() }).data;
-    env.api({ action: 'me', token });
+    env.api({ action: 'bootstrap', token });
 
     row = sheet.getRange(2, 1, 1, 10).getValues()[0];
     expect(Object.prototype.toString.call(row[7])).toBe('[object Date]');
@@ -431,5 +469,120 @@ describe('Apps Script: "Ulanishlar" varag\'i', () => {
     env.shareContact(222, '+998910000002');
     expect(sheet.getLastRow()).toBe(3);
     expect(sheet.getRange(3, 2).getValue()).toBe('Botir Moyxona');
+  });
+});
+
+describe('Apps Script: bootstrap (ilova ochilganda bitta so\'rov)', () => {
+  it('frontend kutgan maydonlarni to\'g\'ri raqamlar bilan qaytaradi', () => {
+    const env = createEnv();
+    const token = env.login(111, '+998900000001');
+    const boot = env.api({ action: 'bootstrap', token }).data;
+
+    expect(boot.registered).toBe(true);
+    expect(boot.user.name).toBe('Alisher Usta');
+    expect(boot.user.region).toBe('01 Tashkent');
+
+    const s = boot.stats;
+    // Alisher: $3500, qarzsiz -> 3 bilet; 1-o'rin (3500 > 1200 > 800)
+    expect(s.confirmedAmount).toBe(3500);
+    expect(s.tickets).toBe(3);
+    expect(s.activeTicketsCount).toBe(3);
+    expect(s.gapToNextTicket).toBe(500);
+    expect(s.currentRank).toBe(1);
+    expect(s.totalParticipants).toBe(3);
+    expect(s.gapToFirstPlace).toBe(0);
+    // Faol biletlar: Alisher 3 + Sardor 0 (800$) ; Botir qarzdor -> T = 3 <= K -> 100%
+    expect(boot.config.totalConfirmedTicketsPool).toBe(3);
+    expect(s.probPercent).toBe(100);
+    for (const key of ['daysRemainingInMonth', 'probNextJump', 'probFourMonthStreak', 'gapToTop10', 'activeParticipants']) {
+      expect(s[key], key).not.toBeUndefined();
+    }
+    expect(JSON.stringify(boot)).not.toContain('null');
+    expect(JSON.stringify(boot)).not.toContain('NaN');
+  });
+
+  it('reytingda "men" belgilanadi, boshqalarning to\'lov summasi yuborilmaydi', () => {
+    const env = createEnv();
+    const token = env.login(333, '+998930000003'); // Sardor — 3-o'rin, $800
+    const boot = env.api({ action: 'bootstrap', token }).data;
+
+    const me = boot.leaderboard.republic.find((e: any) => e.isMe);
+    expect(me.rank).toBe(3);
+    expect(boot.stats.currentRank).toBe(3);
+    expect(boot.stats.gapToNextRank).toBe(401); // 1200 - 800 + 1
+    expect(boot.stats.gapToFirstPlace).toBe(2701); // 3500 - 800 + 1
+    expect(boot.leaderboard.region).toHaveLength(1); // Samarqandda faqat o'zi
+    expect(boot.leaderboard.region[0].isMe).toBe(true);
+    expect(JSON.stringify(boot.leaderboard)).not.toMatch(/turnover|paidAmount|3500|1200/);
+  });
+
+  it('qarzdorning biletlari nofaol', () => {
+    const env = createEnv();
+    const token = env.login(222, '+998910000002'); // Botir — $1200, qarz 150
+    const boot = env.api({ action: 'bootstrap', token }).data;
+    expect(boot.stats.isDebtCleared).toBe(false);
+    expect(boot.stats.tickets).toBe(1);
+    expect(boot.stats.activeTicketsCount).toBe(0);
+    expect(boot.stats.debtAmount).toBe(150);
+    expect(boot.tickets[0].status).toBe('pending_debt');
+  });
+
+  it('jadval keshlanadi: ketma-ket so\'rovlar varaqni qayta o\'qimaydi', () => {
+    const env = createEnv();
+    const token = env.login(111, '+998900000001');
+    const before = env.stats.masterReads;
+    env.api({ action: 'bootstrap', token });
+    env.api({ action: 'bootstrap', token });
+    env.api({ action: 'leaderboard' });
+    expect(env.stats.masterReads).toBe(before);
+  });
+});
+
+describe('Apps Script: bilet raqamlari va tekshiruv', () => {
+  it('bilet raqamlari mijozlar orasida takrorlanmaydi va haqiqatan tekshiriladi', () => {
+    const env = createEnv();
+    const t1 = env.api({ action: 'bootstrap', token: env.login(111, '+998900000001') }).data.tickets;
+    const t2 = env.api({ action: 'bootstrap', token: env.login(222, '+998910000002') }).data.tickets;
+    expect(t1).toHaveLength(3);
+    expect(t1[0].ticketNumber).not.toBe(t2[0].ticketNumber);
+
+    const ok = env.api({ action: 'ticket.verify', ticketNumber: t1[2].ticketNumber }).data;
+    expect(ok.valid).toBe(true);
+    expect(ok.ownerMasked).toBe('01 · A***');
+
+    const tooHigh = t1[2].ticketNumber.replace(/-003$/, '-004'); // Alisherda faqat 3 ta bilet
+    expect(env.api({ action: 'ticket.verify', ticketNumber: tooHigh }).data.valid).toBe(false);
+    expect(env.api({ action: 'ticket.verify', ticketNumber: 'EPCO-2610-0001' }).data.valid).toBe(false);
+  });
+});
+
+describe('Apps Script: yangi mijoz anketasi', () => {
+  it('anketa "Yangi_mijozlar" varag\'iga yoziladi, formula kiritib bo\'lmaydi', () => {
+    const env = createEnv();
+    const token = env.login(555, '+998999999999');
+    const res = env.api({
+      action: 'lead.submit',
+      token,
+      lead: {
+        name: 'Jasur', activity: 'Moyxona', shopName: '=IMPORTXML("http://x")', region: '05 Samarqand',
+        district: 'Urgut', volume: '100–500 litr', brands: 'Lukoil', source: 'Agent',
+      },
+    });
+    expect(res.success).toBe(true);
+
+    const row = env.sheets['Yangi_mijozlar'].getRange(2, 1, 1, 12).getValues()[0];
+    expect(row.slice(1, 4)).toEqual(['+998 (99) 999-99-99', 'Jasur', 'Moyxona']);
+    expect(row[4]).toBe('\'=IMPORTXML("http://x")');
+    expect(row[11]).toBe('Yangi');
+
+    expect(env.api({ action: 'bootstrap', token }).data.leadSubmitted).toBe(true);
+    const activity = env.sheets['Ulanishlar'];
+    expect(activity.getRange(2, 11).getValue()).toBe("Anketa to'ldirdi");
+  });
+
+  it('ism va faoliyat turisiz anketa qabul qilinmaydi', () => {
+    const env = createEnv();
+    const token = env.login(555, '+998999999999');
+    expect(env.api({ action: 'lead.submit', token, lead: { name: '' } }).success).toBe(false);
   });
 });

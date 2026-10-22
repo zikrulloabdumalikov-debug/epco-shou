@@ -3,6 +3,7 @@ import { User, Language } from '../types';
 import { translations } from '../i18n';
 import { triggerHaptic } from '../utils/audio';
 import { User as UserIcon, Phone, MapPin, Eye, LogOut, X } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -12,6 +13,10 @@ interface ProfileModalProps {
   onClose: () => void;
   onUpdateConsent: (consent: boolean) => Promise<void>;
   onLogout: () => Promise<void>;
+  soundOn: boolean;
+  onToggleSound: () => void;
+  onToggleTextSize: () => void;
+  onToggleLanguage: () => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -22,6 +27,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   onUpdateConsent,
   onLogout,
+  soundOn,
+  onToggleSound,
+  onToggleTextSize,
+  onToggleLanguage,
 }) => {
   const t = translations[language];
   const [consent, setConsent] = useState(!user.isAnonymous);
@@ -145,6 +154,39 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <p className="text-[11px] text-slate-300 leading-relaxed">
             {t.profileConsentNote}
           </p>
+        </div>
+
+        {/* Ilova sozlamalari */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            onClick={onToggleSound}
+            className={`min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-colors ${
+              soundOn ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'
+            }`}
+          >
+            <span className="text-lg">{soundOn ? '🔊' : '🔇'}</span>
+            {soundOn ? t.soundOn : t.soundOff}
+          </button>
+          <button
+            onClick={onToggleTextSize}
+            className={`min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border transition-colors ${
+              isLargeText ? 'bg-amber-400 text-[#06154A] border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'
+            }`}
+          >
+            <span className="text-lg font-black">A+</span>
+            {isLargeText ? t.textSizeNormal : t.textSizeToggle}
+          </button>
+          <button
+            onClick={onToggleLanguage}
+            className="min-h-[56px] rounded-2xl text-xs font-bold flex flex-col items-center justify-center gap-1 border bg-white/5 text-slate-300 border-white/10"
+          >
+            <span className="text-lg font-black">{language === 'uz' ? 'UZ' : 'RU'}</span>
+            {language === 'uz' ? 'Tilni almashtirish' : 'Сменить язык'}
+          </button>
+        </div>
+
+        <div className="flex justify-center">
+          <PWAInstallButton language={language} />
         </div>
 
         {/* Logout Button */}

@@ -60,9 +60,12 @@ Avval **2.4** bo'yicha Deploy qiling, keyin Apps Script muharririda quyidagilarn
 
 1. **`setupSheets`** ni tanlang va **Run (Ishga tushirish)** tugmasini bosing:
    - Google hisobingizga ruxsat berish oynasi chiqadi (`Review permissions` → Hisobni tanlang → `Advanced` → `Go to EPCO Shou (unsafe)` → `Allow`).
-   - Bu funksiya `Ustalar` varag'i mavjudligini tekshiradi va **`Ulanishlar`** varag'ini yaratadi. U yerda har bir mijoz uchun bitta qator bo'ladi: botga ulangan sana, oxirgi kirish, oxirgi faollik (10 daqiqa aniqlikda) va kirishlar soni. `M1` katakda jami ulanganlar, `O1` da bugun faol bo'lganlar soni turadi.
+   - `Ustalar` varag'ini o'qib keshga oladi va ikkita varaq yaratadi:
+     - **`Ulanishlar`** — har bir mijoz uchun bitta qator: botga ulangan sana, oxirgi kirish, oxirgi faollik, kirishlar soni va holat (Bazada / Yangi / Anketa to'ldirdi). `N1` da jami ulanganlar, `P1` da bugun faol bo'lganlar.
+     - **`Yangi_mijozlar`** — bazada yo'q mijozlar to'ldirgan anketalar (ism, faoliyat turi, viloyat, oylik hajm va h.k.).
 2. **`installTriggers`** ni tanlang va **Run** tugmasini bosing:
-   - Muddati o'tgan sessiyalarni har kuni tozalaydigan trigger o'rnatadi.
+   - Har 10 daqiqada `Ustalar` keshini yangilaydi (ilova tez ochilishi uchun) va har kuni eski sessiyalarni tozalaydi.
+   - Jadvalni qo'lda o'zgartirsangiz, kesh avtomatik tozalanadi (`onEdit`), yangi ma'lumot darhol ko'rinadi.
 3. **`setTelegramWebhook`** ni tanlang va **Run** tugmasini bosing:
    - Botni Web App'ga `?secret=WEBHOOK_SECRET` bilan ulaydi. Log'da `"ok":true` chiqishi kerak.
    - `WEBHOOK_SECRET` ni o'zgartirsangiz, bu funksiyani qayta ishga tushiring.

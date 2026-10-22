@@ -67,7 +67,7 @@ export const MascotUstaMoy: React.FC<MascotProps> = ({
             break;
           case 'leaderboard':
             setCurrentMessage(
-              "Reytingda faqat tasdiqlangan to'lovlar hisobga olinadi. Top-30 usta jonli efir shousiga yo'llanma oladi!"
+              "Reyting shu oydagi to'lovlar bo'yicha tuziladi. Qarzsiz 1-o'rindagi usta iPhone yutadi, jonli shouga esa tasodifiy 30 ta bilet tanlanadi!"
             );
             break;
           case 'login':
@@ -93,8 +93,14 @@ export const MascotUstaMoy: React.FC<MascotProps> = ({
     };
   }, []);
 
-  // Initial greeting
+  // Birinchi salom faqat birinchi kirishda — har ochilishda ekranni to'sib qo'ymasin
   useEffect(() => {
+    try {
+      if (localStorage.getItem('epco_mascot_greeted')) return;
+      localStorage.setItem('epco_mascot_greeted', '1');
+    } catch {
+      return;
+    }
     const timer = setTimeout(() => {
       setCurrentMessage(
         "Assalomu alaykum usta! Har $1,000 to'lovga 1 ta bilet beriladi. Qarzingizni $0 qilsangiz, biletlaringiz AKTUAL bo'ladi!"
@@ -110,7 +116,7 @@ export const MascotUstaMoy: React.FC<MascotProps> = ({
     triggerHaptic(25);
     const messages = [
       "Har $1,000 to'lov = 1 ta bilet! Biletlar tirajda qatnashishi uchun qarzingiz $0 bo'lishi shart!",
-      "Google Sheets jadvalidan ma'lumotlar avtomatik sinxronlanadi!",
+      "Reyting bo'limida o'rningizni va 1-o'ringacha qancha qolganini ko'ring!",
       "Oy oxirida qoldiq summangiz kuyib ketmasin, $1,000 ga to'ldirib oling!",
       "Jonli efirda 🚗 Chevrolet DAMAS va $15,000 lik sovg'alar o'ynaladi!",
       "Qarzingizni yopsangiz, barcha biletlaringiz darhol 'Faol' (Aktual) bo'ladi!"
@@ -199,12 +205,12 @@ export const MascotUstaMoy: React.FC<MascotProps> = ({
       {/* Speech Bubble: Opens safely DOWNWARD inside the screen (Never clips off the top!) */}
       {isOpen && currentMessage && (
         <div
-          className={`absolute top-full right-0 sm:right-auto sm:left-0 mt-2.5 w-72 sm:w-80 p-3.5 rounded-2xl bg-[#0D1322] text-white shadow-[0_12px_40px_rgba(0,0,0,0.95)] z-50 border border-amber-400/60 animate-in fade-in slide-in-from-top-2 duration-200 ${
+          className={`fixed left-3 right-3 top-16 sm:absolute sm:top-full sm:left-auto sm:right-0 sm:mt-2.5 sm:w-80 p-3.5 rounded-2xl bg-[#0D1322] text-white shadow-[0_12px_40px_rgba(0,0,0,0.95)] z-50 border border-amber-400/60 animate-in fade-in slide-in-from-top-2 duration-200 ${
             isLargeText ? 'text-sm' : 'text-xs'
           }`}
         >
           {/* Top arrow pointer */}
-          <div className="absolute -top-2 right-6 sm:right-auto sm:left-6 w-3.5 h-3.5 bg-[#0D1322] border-t border-l border-amber-400/60 rotate-45" />
+          <div className="hidden sm:block absolute -top-2 right-6 w-3.5 h-3.5 bg-[#0D1322] border-t border-l border-amber-400/60 rotate-45" />
 
           {/* Header */}
           <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10 relative z-10">
@@ -243,10 +249,10 @@ export const MascotUstaMoy: React.FC<MascotProps> = ({
               💳 Qarz sharti
             </button>
             <button
-              onClick={() => handleTopicChip('sheets')}
+              onClick={() => handleTopicChip('leaderboard')}
               className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 cursor-pointer"
             >
-              📊 Google Sheets
+              🏆 Reyting
             </button>
           </div>
         </div>

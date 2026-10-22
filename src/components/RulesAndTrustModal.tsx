@@ -1,7 +1,7 @@
 import React from 'react';
 import { Language, PromoConfig } from '../types';
 import { translations } from '../i18n';
-import damasPrizeImg from '../assets/images/hero_damas_prize_1790772648839.jpg';
+import damasPrizeImg from '../assets/images/damas_prize.webp';
 
 interface RulesAndTrustModalProps {
   isOpen: boolean;

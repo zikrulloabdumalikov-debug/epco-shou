@@ -1,25 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ClientStats, Language, PromoConfig, Product } from '../types';
+import { ClientStats, Language, PromoConfig } from '../types';
 import { translations } from '../i18n';
-import { simulateAdditionalSpend, findSmartUpsell } from '../utils/probability';
+import { simulateAdditionalSpend } from '../utils/probability';
 import { triggerHaptic } from '../utils/audio';
 
 interface SimulatorCardProps {
   stats: ClientStats;
   config?: PromoConfig;
-  catalog?: Product[];
   language: Language;
   isLargeText?: boolean;
-  onAddToCartAndOpenStore?: (product: Product, quantity: number) => void;
 }
 
 export const SimulatorCard: React.FC<SimulatorCardProps> = ({
   stats,
   config,
-  catalog = [],
   language,
   isLargeText,
-  onAddToCartAndOpenStore,
 }) => {
   const t = translations[language];
   const initialGap = stats.gapToNextTicket > 0 ? stats.gapToNextTicket : 500;
@@ -50,12 +46,6 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({
     );
   }, [stats, sliderAmount, poolT, showWinnersK, config?.thresholds]);
 
-  // Smart Upsell calculation based on current slider gap
-  const smartUpsell = useMemo(() => {
-    if (!catalog.length || sliderAmount <= 0) return null;
-    return findSmartUpsell(sliderAmount, catalog);
-  }, [sliderAmount, catalog]);
-
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
     setSliderAmount(val);
@@ -73,7 +63,7 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({
           <p className="text-xs text-white/70 mt-0.5">{t.simSubtitle}</p>
         </div>
         <span className="text-xs font-black text-[#FFC933] bg-black/40 px-2.5 py-1 rounded-xl border border-[#FFC933]/40 uppercase tracking-wider">
-          Interaktiv
+          Hisoblagich
         </span>
       </div>
 
@@ -148,44 +138,10 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({
       </div>
 
       {/* Estimated Probability Note */}
-      <div className="bg-black/30 rounded-xl p-2.5 border border-white/10 text-xs text-center flex items-center justify-around">
-        <div>
-          <span className="text-[10px] text-slate-400 block">Yangi biletlar bilan ehtimol:</span>
-          <span className="text-emerald-400 font-black text-sm tabular-nums">
-            {simResult.newMetrics.percent}%
-          </span>
-        </div>
-        <div className="h-6 w-px bg-white/10" />
-        <div>
-          <span className="text-[10px] text-slate-400 block">4 oylik streak imkoniyati:</span>
-          <span className="text-amber-400 font-black text-sm tabular-nums">
-            {simResult.newMetrics.fourMonthProb}%
-          </span>
-        </div>
+      <div className="bg-black/30 rounded-xl p-2.5 border border-white/10 text-xs text-center">
+        <span className="text-slate-300">Shouga chiqish imkoniyati: </span>
+        <span className="text-emerald-400 font-black text-sm tabular-nums">{Math.round(simResult.newMetrics.percent)}%</span>
       </div>
-
-      {/* Upsell / Add to cart recommendation */}
-      {smartUpsell && onAddToCartAndOpenStore && (
-        <div className="p-2.5 bg-amber-400/10 border border-amber-400/40 rounded-2xl flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <span className="text-[10px] text-amber-300 font-extrabold uppercase block">
-              💡 Aqlli tavsiya (+${smartUpsell.totalCost}):
-            </span>
-            <div className="text-xs font-bold text-white truncate">
-              {smartUpsell.product.name} × {smartUpsell.quantity} dona
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              triggerHaptic(20);
-              onAddToCartAndOpenStore(smartUpsell.product, smartUpsell.quantity);
-            }}
-            className="shrink-0 px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider transition-colors shadow"
-          >
-            Savatga olish
-          </button>
-        </div>
-      )}
 
       {/* Simulator Guidance CTA */}
       <div className="space-y-2 pt-1">
