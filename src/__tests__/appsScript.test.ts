@@ -24,6 +24,53 @@ const ROWS = [
   ['05 Samarqand', 'AG-3', 'Sardor Avto', '', '+998 (93) 000-00-03', '', 800, 0, ''],
 ];
 
+const FORMAT_METHODS = ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat'];
+
+/** Oddiy jadval mock'i: 1-indeksli katakchalar */
+class GridSheet {
+  cells: any[][] = [];
+  private cell(r: number, c: number) {
+    return this.cells[r - 1]?.[c - 1] ?? '';
+  }
+  private set(r: number, c: number, v: any) {
+    (this.cells[r - 1] ??= [])[c - 1] = v;
+  }
+  getLastRow() {
+    let last = 0;
+    this.cells.forEach((row, i) => {
+      if (row && row.some((v) => v !== '' && v !== undefined)) last = i + 1;
+    });
+    return last;
+  }
+  setFrozenRows() {}
+  getRange(a: number | string, b = 1, nr = 1, nc = 1): any {
+    let r = a as number;
+    let c = b;
+    const range: any = {};
+    FORMAT_METHODS.forEach((k) => (range[k] = () => range));
+    if (typeof a === 'string') {
+      const m = a.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
+      if (!m) return range; // "A:A" kabi butun ustun formatlari
+      const col = (letters: string) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+      r = Number(m[2]);
+      c = col(m[1]);
+      nr = m[4] ? Number(m[4]) - r + 1 : 1;
+      nc = m[3] ? col(m[3]) - c + 1 : 1;
+    }
+    range.setValues = (vals: any[][]) => {
+      vals.forEach((row, i) => row.forEach((v, j) => this.set(r + i, c + j, v)));
+      return range;
+    };
+    range.setValue = (v: any) => (this.set(r, c, v), range);
+    range.setFormula = (f: string) => (this.set(r, c, f), range);
+    range.getValue = () => this.cell(r, c);
+    range.getValues = () =>
+      Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.cell(r + i, c + j)));
+    range.getDisplayValues = () => range.getValues().map((row: any[]) => row.map((v) => String(v)));
+    return range;
+  }
+}
+
 function createEnv() {
   const props = new Map<string, string>([
     ['BOT_TOKEN', BOT_TOKEN],
@@ -32,11 +79,12 @@ function createEnv() {
   const cache = new Map<string, string>();
   const sent: { url: string; payload: any }[] = [];
 
-  const sheet = {
+  const ustalar = {
     getLastRow: () => ROWS.length + 1,
     getLastColumn: () => 9,
     getRange: () => ({ getValues: () => ROWS.map((r) => r.slice()) }),
   };
+  const sheets: Record<string, any> = { Ustalar: ustalar };
 
   const mocks = {
     Logger: { log: () => {} },
@@ -77,12 +125,17 @@ function createEnv() {
       }),
     },
     LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+    HtmlService: { createHtmlOutput: (content: string) => ({ content, kind: 'html' }) },
     ContentService: {
       MimeType: { JSON: 'json' },
       createTextOutput: (content: string) => ({ content, setMimeType() { return this; } }),
     },
     SpreadsheetApp: {
-      getActiveSpreadsheet: () => ({ getSheetByName: () => sheet, getSheets: () => [sheet] }),
+      getActiveSpreadsheet: () => ({
+        getSheetByName: (name: string) => sheets[name] || null,
+        getSheets: () => Object.values(sheets),
+        insertSheet: (name: string) => (sheets[name] = new GridSheet()),
+      }),
     },
     UrlFetchApp: {
       fetch: (url: string, opts: any) => {
@@ -105,13 +158,14 @@ function createEnv() {
       parameter: secret === null ? {} : { secret },
     }).content;
 
+  let updateId = 1;
   const shareContact = (userId: number, phone: string, contactUserId: number = userId, secret?: string | null) =>
     webhook(
       {
-        update_id: 1,
+        update_id: updateId++,
         message: {
           chat: { id: userId, type: 'private' },
-          from: { id: userId },
+          from: { id: userId, username: `user${userId}` },
           contact: { phone_number: phone, user_id: contactUserId },
         },
       },
@@ -123,7 +177,7 @@ function createEnv() {
     return msg ? msg.payload.text.match(/\*(\d{6})\*/)[1] : null;
   };
 
-  return { ctx, props, cache, sent, api, webhook, shareContact, lastCode };
+  return { ctx, props, cache, sent, sheets, api, webhook, shareContact, lastCode };
 }
 
 function signInitData(fields: Record<string, string>, botToken = BOT_TOKEN) {
@@ -312,5 +366,70 @@ describe('Apps Script: reytingda ismlar', () => {
 
     expect(board()[0].maskedName).toBe('Alisher Usta');
     expect(board()[1].maskedName).toBe('03 · B***');
+  });
+});
+
+describe('Apps Script: webhook javobi va takrorlar', () => {
+  const startUpdate = (id: number) => ({
+    update_id: id,
+    message: { chat: { id: 1, type: 'private' }, from: { id: 1 }, text: '/start' },
+  });
+
+  it('webhook 302 emas, HtmlService (200) javobini qaytaradi', () => {
+    const env = createEnv();
+    const out = env.ctx.doPost({
+      postData: { contents: JSON.stringify(startUpdate(5)) },
+      parameter: { secret: WEBHOOK_SECRET },
+    });
+    expect(out.kind).toBe('html');
+  });
+
+  it('Telegram qayta yuborgan bir xil xabar faqat bir marta ishlanadi', () => {
+    const env = createEnv();
+    env.webhook(startUpdate(77));
+    env.webhook(startUpdate(77));
+    expect(env.sent.filter((m) => m.url.includes('/sendMessage'))).toHaveLength(1);
+  });
+
+  it('setTelegramWebhook qotib qolgan xabarlarni tozalaydi', () => {
+    const env = createEnv();
+    env.ctx.setTelegramWebhook();
+    expect(env.sent.find((m) => m.url.includes('/setWebhook'))!.url).toContain('drop_pending_updates=true');
+  });
+});
+
+describe('Apps Script: "Ulanishlar" varag\'i', () => {
+  it('botga ulanish, kirish va faollik yoziladi', () => {
+    const env = createEnv();
+    env.shareContact(111, '+998900000001');
+
+    const sheet = env.sheets['Ulanishlar'];
+    expect(sheet).toBeDefined();
+    expect(sheet.getRange(1, 1, 1, 10).getValues()[0]).toEqual([
+      'Telefon', 'Mijoz', 'Hudud', 'Agent', 'Telegram ID', 'Telegram username',
+      'Botga ulangan', 'Oxirgi kirish', 'Oxirgi faollik', 'Kirishlar soni',
+    ]);
+    expect(sheet.getRange('M1').getValue()).toBe('=COUNTA(A2:A)');
+
+    let row = sheet.getRange(2, 1, 1, 10).getValues()[0];
+    expect(row.slice(0, 6)).toEqual(['+998 (90) 000-00-01', 'Alisher Usta', '01 Tashkent', 'AG-1', '111', '@user111']);
+    expect(Object.prototype.toString.call(row[6])).toBe('[object Date]');
+    expect(row[7]).toBe('');
+    expect(row[9]).toBe(0);
+
+    env.api({ action: 'auth.requestCode', phone: '+998900000001' });
+    const { token } = env.api({ action: 'auth.verifyCode', phone: '+998900000001', code: env.lastCode() }).data;
+    env.api({ action: 'me', token });
+
+    row = sheet.getRange(2, 1, 1, 10).getValues()[0];
+    expect(Object.prototype.toString.call(row[7])).toBe('[object Date]');
+    expect(Object.prototype.toString.call(row[8])).toBe('[object Date]');
+    expect(row[9]).toBe(1);
+    expect(sheet.getLastRow()).toBe(2); // bitta mijoz — bitta qator
+
+    // ikkinchi mijoz alohida qatorga tushadi
+    env.shareContact(222, '+998910000002');
+    expect(sheet.getLastRow()).toBe(3);
+    expect(sheet.getRange(3, 2).getValue()).toBe('Botir Moyxona');
   });
 });

@@ -60,12 +60,13 @@ Avval **2.4** bo'yicha Deploy qiling, keyin Apps Script muharririda quyidagilarn
 
 1. **`setupSheets`** ni tanlang va **Run (Ishga tushirish)** tugmasini bosing:
    - Google hisobingizga ruxsat berish oynasi chiqadi (`Review permissions` → Hisobni tanlang → `Advanced` → `Go to EPCO Shou (unsafe)` → `Allow`).
-   - Bu funksiya `Ustalar` varag'i mavjudligini tekshiradi.
+   - Bu funksiya `Ustalar` varag'i mavjudligini tekshiradi va **`Ulanishlar`** varag'ini yaratadi. U yerda har bir mijoz uchun bitta qator bo'ladi: botga ulangan sana, oxirgi kirish, oxirgi faollik (10 daqiqa aniqlikda) va kirishlar soni. `M1` katakda jami ulanganlar, `O1` da bugun faol bo'lganlar soni turadi.
 2. **`installTriggers`** ni tanlang va **Run** tugmasini bosing:
    - Muddati o'tgan sessiyalarni har kuni tozalaydigan trigger o'rnatadi.
 3. **`setTelegramWebhook`** ni tanlang va **Run** tugmasini bosing:
    - Botni Web App'ga `?secret=WEBHOOK_SECRET` bilan ulaydi. Log'da `"ok":true` chiqishi kerak.
    - `WEBHOOK_SECRET` ni o'zgartirsangiz, bu funksiyani qayta ishga tushiring.
+   - Bot javob bermasa, **`checkTelegramWebhook`** ni ishga tushiring: log'da `last_error_message` va `pending_update_count` ko'rinadi.
 
 ### 2.4. Web App Sifatida Deploy Qilish
 > Kodni yangilaganda manzil o'zgarmasligi uchun: **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**. Yangi deployment yaratsangiz, manzil o'zgaradi va GitHub'dagi `VITE_API_URL` ni ham yangilash kerak bo'ladi.
