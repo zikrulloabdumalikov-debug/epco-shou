@@ -30,11 +30,9 @@ type Section = 'overview' | 'broadcast' | 'winners' | 'settings';
 type TargetType = 'all' | 'registered' | 'new' | 'region' | 'phone';
 type Kind = 'text' | 'photo' | 'poll';
 
-const input =
-  'w-full min-h-[46px] px-3 rounded-xl bg-slate-950/80 border border-white/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400';
-const primaryBtn =
-  'w-full min-h-[48px] rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#06154A] font-black text-sm disabled:opacity-40 active:scale-[0.98] transition-transform';
-const card = 'glass-card p-4 rounded-2xl border border-white/10 space-y-3';
+const input = 'field';
+const primaryBtn = 'btn btn-primary w-full';
+const card = 'card p-4 space-y-3';
 
 const formatDate = (iso: string) => {
   const d = new Date(iso);
@@ -174,13 +172,13 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black">🛠 Admin panel</h2>
-        <button onClick={load} disabled={loading} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15">
+        <h2 className="text-2xl font-extrabold">Admin panel</h2>
+        <button onClick={load} disabled={loading} className="icon-btn w-auto px-3">
           {loading ? '...' : '🔄 Yangilash'}
         </button>
       </div>
 
-      <div className="grid grid-cols-4 gap-1 p-1 bg-[#090D17]/90 rounded-2xl border border-amber-500/20">
+      <div className="grid grid-cols-4 gap-1 p-1 bg-surface rounded-2xl border border-line">
         {tabs.map(([key, label]) => (
           <button
             key={key}
@@ -189,16 +187,16 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               setNotice(null);
               setError(null);
             }}
-            className={`min-h-[42px] rounded-xl text-[11px] font-bold ${section === key ? 'bg-amber-400 text-[#06154A]' : 'text-slate-300'}`}
+            className={`min-h-[44px] rounded-xl text-xs font-bold ${section === key ? 'bg-brand text-white' : 'text-muted'}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {error && <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-sm">{error}</div>}
-      {notice && <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-sm">{notice}</div>}
-      {!data && loading && <div className="text-center text-slate-400 py-10">Yuklanmoqda...</div>}
+      {error && <div className="p-3.5 rounded-2xl bg-bad-soft text-bad text-sm">{error}</div>}
+      {notice && <div className="p-3.5 rounded-2xl bg-ok-soft text-ok text-sm">{notice}</div>}
+      {!data && loading && <div className="text-center text-muted py-10">Yuklanmoqda...</div>}
 
       {data && section === 'overview' && (
         <div className="space-y-4">
@@ -209,20 +207,20 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               ['Bugun faol', data.activeToday],
               ['Yangi anketalar', data.leadsTotal],
             ].map(([label, value]) => (
-              <div key={label as string} className="glass-card p-3 rounded-2xl border border-white/10">
-                <div className="text-[11px] text-slate-400">{label}</div>
-                <div className="text-2xl font-black text-amber-300 tabular-nums">{Number(value).toLocaleString('en-US')}</div>
+              <div key={label as string} className="card p-3">
+                <div className="text-[11px] text-muted">{label}</div>
+                <div className="text-2xl font-extrabold text-brand tabular-nums">{Number(value).toLocaleString('en-US')}</div>
               </div>
             ))}
           </div>
 
           <div className={card}>
             <h3 className="font-black">🆕 Oxirgi anketalar</h3>
-            {data.recentLeads.length === 0 && <p className="text-sm text-slate-400">Hozircha anketa yo'q</p>}
+            {data.recentLeads.length === 0 && <p className="text-sm text-muted">Hozircha anketa yo'q</p>}
             {data.recentLeads.map((l, i) => (
-              <div key={i} className="text-sm border-t border-white/5 pt-2 first:border-0 first:pt-0">
-                <div className="font-bold">{l.name} · <span className="font-mono text-slate-300">{l.phone}</span></div>
-                <div className="text-xs text-slate-400">{l.activity} · {l.region} · {formatDate(l.date)}</div>
+              <div key={i} className="text-sm border-t border-line pt-2 first:border-0 first:pt-0">
+                <div className="font-bold">{l.name} · <span className="font-mono text-muted">{l.phone}</span></div>
+                <div className="text-xs text-muted">{l.activity} · {l.region} · {formatDate(l.date)}</div>
               </div>
             ))}
           </div>
@@ -256,12 +254,12 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
           </div>
 
           <div className={card}>
-            <div className="grid grid-cols-3 gap-1 p-1 bg-black/30 rounded-xl">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-page rounded-xl">
               {([['text', '✉️ Matn'], ['photo', '🖼 Rasm'], ['poll', '📊 So\'rovnoma']] as [Kind, string][]).map(([k, label]) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
-                  className={`min-h-[40px] rounded-lg text-xs font-bold ${kind === k ? 'bg-amber-400 text-[#06154A]' : 'text-slate-300'}`}
+                  className={`min-h-[40px] rounded-lg text-sm font-bold ${kind === k ? 'bg-brand text-white' : 'text-muted'}`}
                 >
                   {label}
                 </button>
@@ -271,7 +269,7 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
             {kind === 'photo' && (
               <div className="space-y-2">
                 <label className="block">
-                  <span className="text-xs text-slate-400">Rasm (telefon galereyasidan)</span>
+                  <span className="text-xs text-muted">Rasm (telefon galereyasidan)</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -284,10 +282,10 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
                         setError(err.message);
                       }
                     }}
-                    className="block w-full text-sm text-slate-300 mt-1 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-white/10 file:text-white"
+                    className="block w-full text-sm text-muted mt-1 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-soft file:text-brand"
                   />
                 </label>
-                {image && <img src={image} alt="" className="w-full max-h-56 object-contain rounded-xl border border-white/10" />}
+                {image && <img src={image} alt="" className="w-full max-h-56 object-contain rounded-xl border border-line" />}
               </div>
             )}
 
@@ -311,20 +309,20 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
                       className={input}
                     />
                     {pollOptions.length > 2 && (
-                      <button onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))} className="px-3 rounded-xl bg-white/10">✕</button>
+                      <button onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))} className="icon-btn shrink-0 self-center">✕</button>
                     )}
                   </div>
                 ))}
                 {pollOptions.length < 10 && (
-                  <button onClick={() => setPollOptions([...pollOptions, ''])} className="text-sm font-bold text-amber-300">
+                  <button onClick={() => setPollOptions([...pollOptions, ''])} className="text-sm font-bold text-brand">
                     + Javob qo'shish
                   </button>
                 )}
-                <label className="flex items-center gap-2 text-sm text-slate-300">
-                  <input type="checkbox" checked={pollMultiple} onChange={(e) => setPollMultiple(e.target.checked)} className="accent-amber-400 w-4 h-4" />
+                <label className="flex items-center gap-2 text-sm text-muted">
+                  <input type="checkbox" checked={pollMultiple} onChange={(e) => setPollMultiple(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
                   Bir nechta javob tanlash mumkin
                 </label>
-                <p className="text-[11px] text-slate-400">Javoblar «Sorovnoma_javoblari» varag'iga mijoz ismi va raqami bilan yoziladi.</p>
+                <p className="text-[11px] text-muted">Javoblar «Sorovnoma_javoblari» varag'iga mijoz ismi va raqami bilan yoziladi.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
@@ -356,8 +354,8 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
             <input value={winner.region} onChange={(e) => setWinner({ ...winner, region: e.target.value })} placeholder="Viloyat (ixtiyoriy)" className={input} />
             <input value={winner.prize} onChange={(e) => setWinner({ ...winner, prize: e.target.value })} placeholder="Sovg'a (masalan: Chevrolet DAMAS)" className={input} />
             <input value={winner.videoUrl} onChange={(e) => setWinner({ ...winner, videoUrl: e.target.value })} placeholder="YouTube havola (ixtiyoriy)" className={input} />
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" checked={winner.notify} onChange={(e) => setWinner({ ...winner, notify: e.target.checked })} className="accent-amber-400 w-4 h-4" />
+            <label className="flex items-center gap-2 text-sm text-muted">
+              <input type="checkbox" checked={winner.notify} onChange={(e) => setWinner({ ...winner, notify: e.target.checked })} className="accent-[var(--color-brand)] w-4 h-4" />
               G'olibga botda tabrik xabari yuborish
             </label>
             <button
@@ -377,14 +375,14 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
 
           <div className={card}>
             <h3 className="font-black">G'oliblar ro'yxati ({data.winners.length})</h3>
-            {data.winners.length === 0 && <p className="text-sm text-slate-400">Hozircha yo'q</p>}
+            {data.winners.length === 0 && <p className="text-sm text-muted">Hozircha yo'q</p>}
             {data.winners.map((w) => (
-              <div key={w.id} className="flex items-start justify-between gap-2 border-t border-white/5 pt-2 first:border-0 first:pt-0">
+              <div key={w.id} className="flex items-start justify-between gap-2 border-t border-line pt-2 first:border-0 first:pt-0">
                 <div className="min-w-0 text-sm">
                   <div className="font-bold">{w.winnerName}</div>
-                  <div className="text-xs text-slate-400">{w.month} · {w.region} · 🎁 {w.prize}</div>
+                  <div className="text-xs text-muted">{w.month} · {w.region} · 🎁 {w.prize}</div>
                   {w.videoUrl && (
-                    <a href={w.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-red-400 underline">▶️ video</a>
+                    <a href={w.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-bad underline">▶️ video</a>
                   )}
                 </div>
                 <button
@@ -395,7 +393,7 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
                       );
                     }
                   }}
-                  className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-rose-500/20 text-rose-300"
+                  className="shrink-0 text-xs font-bold px-3 py-2 rounded-xl bg-bad-soft text-bad"
                 >
                   O'chirish
                 </button>
@@ -409,19 +407,19 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
         <div className={card}>
           <h3 className="font-black">Ilovada ko'rinadigan sozlamalar</h3>
           <label className="block space-y-1">
-            <span className="text-xs text-slate-400">Bosh sovg'a</span>
+            <span className="text-xs text-muted">Bosh sovg'a</span>
             <input value={settings.grandPrize} onChange={(e) => setSettings({ ...settings, grandPrize: e.target.value })} className={input} />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-slate-400">Boshqa sovg'alar (o'zbekcha)</span>
+            <span className="text-xs text-muted">Boshqa sovg'alar (o'zbekcha)</span>
             <textarea value={settings.prizesText} onChange={(e) => setSettings({ ...settings, prizesText: e.target.value })} rows={3} className={`${input} py-2.5`} />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-slate-400">Boshqa sovg'alar (ruscha)</span>
+            <span className="text-xs text-muted">Boshqa sovg'alar (ruscha)</span>
             <textarea value={settings.prizesTextRu} onChange={(e) => setSettings({ ...settings, prizesTextRu: e.target.value })} rows={3} className={`${input} py-2.5`} />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs text-slate-400">Jonli efir / video (YouTube havola, bo'sh qoldirsa tugma yashiriladi)</span>
+            <span className="text-xs text-muted">Jonli efir / video (YouTube havola, bo'sh qoldirsa tugma yashiriladi)</span>
             <input value={settings.liveUrl} onChange={(e) => setSettings({ ...settings, liveUrl: e.target.value })} placeholder="https://youtube.com/..." className={input} />
           </label>
           <button
@@ -444,20 +442,20 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
 const BroadcastList: React.FC<{ broadcasts: Broadcast[] }> = ({ broadcasts }) => (
   <div className={card}>
     <h3 className="font-black">📨 Yuborilgan xabarlar</h3>
-    {broadcasts.length === 0 && <p className="text-sm text-slate-400">Hozircha yo'q</p>}
+    {broadcasts.length === 0 && <p className="text-sm text-muted">Hozircha yo'q</p>}
     {broadcasts.map((b) => {
       const done = b.sent + b.failed;
       return (
-        <div key={b.id} className="text-sm border-t border-white/5 pt-2 first:border-0 first:pt-0 space-y-1">
+        <div key={b.id} className="text-sm border-t border-line pt-2 first:border-0 first:pt-0 space-y-1">
           <div className="flex justify-between gap-2">
             <span className="font-bold truncate">{b.kind} · {b.text || '—'}</span>
-            <span className={`shrink-0 text-xs font-bold ${b.status === 'Yuborildi' ? 'text-emerald-300' : 'text-amber-300'}`}>{b.status}</span>
+            <span className={`shrink-0 text-xs font-bold ${b.status === 'Yuborildi' ? 'text-ok' : 'text-gold'}`}>{b.status}</span>
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-muted">
             {b.target} · {formatDate(b.date)} · ✓ {b.sent} / {b.total}{b.failed ? ` · ✕ ${b.failed} (botni bloklagan)` : ''}
           </div>
-          <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-            <div className="h-full bg-emerald-400" style={{ width: `${b.total ? (done / b.total) * 100 : 0}%` }} />
+          <div className="h-1.5 rounded-full bg-page overflow-hidden">
+            <div className="h-full bg-ok" style={{ width: `${b.total ? (done / b.total) * 100 : 0}%` }} />
           </div>
         </div>
       );

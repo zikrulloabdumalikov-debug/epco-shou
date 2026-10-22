@@ -4,16 +4,17 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ChevronDown, Home, ScrollText, Ticket, Trophy, Medal, Wrench, WifiOff, Send, RefreshCw } from 'lucide-react';
 import { PrizeScope, BootstrapData } from './types';
 import { dataService } from './services/dataService';
 import { apiService } from './services/apiService';
 import { isDemoMode } from './services/demoData';
 import { isSoundEnabled, setSoundEnabled, triggerHaptic } from './utils/audio';
-import { useL, useLanguage, setLanguage, localizeMonth } from './i18n/lang';
+import { useL, useLanguage, setLanguage } from './i18n/lang';
+import epcoLogo from './assets/brand/epco-logo.png';
 
-// Components
-import { OilFlaskWidget } from './components/OilFlaskWidget';
-import { GrandPrizeBanner } from './components/GrandPrizeBanner';
+import { HomeHero } from './components/HomeHero';
+import { PrizeCard } from './components/PrizeCard';
 import { ProbabilityCard } from './components/ProbabilityCard';
 import { SimulatorCard } from './components/SimulatorCard';
 import { LeaderboardView } from './components/LeaderboardView';
@@ -38,15 +39,21 @@ function getVerifyTicketFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   const verifyPrefix = `${import.meta.env.BASE_URL}verify/`;
   const path = window.location.pathname;
-  if (path.startsWith(verifyPrefix)) {
-    return decodeURIComponent(path.slice(verifyPrefix.length));
-  }
+  if (path.startsWith(verifyPrefix)) return decodeURIComponent(path.slice(verifyPrefix.length));
   const hash = window.location.hash;
-  if (hash.startsWith('#/verify/')) {
-    return decodeURIComponent(hash.replace('#/verify/', ''));
-  }
+  if (hash.startsWith('#/verify/')) return decodeURIComponent(hash.replace('#/verify/', ''));
   return null;
 }
+
+/** Oddiy markazlashgan holat ekrani (xato, botga ulanish) */
+const StatusScreen: React.FC<{ icon: React.ReactNode; title: string; text: string; children?: React.ReactNode }> = ({ icon, title, text, children }) => (
+  <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 text-center">
+    <div className="w-16 h-16 rounded-full bg-brand-soft text-brand flex items-center justify-center">{icon}</div>
+    <h2 className="mt-5 text-2xl font-extrabold">{title}</h2>
+    <p className="mt-2 max-w-sm text-muted leading-relaxed">{text}</p>
+    <div className="mt-6 w-full max-w-sm space-y-2">{children}</div>
+  </div>
+);
 
 export default function App() {
   const L = useL();
@@ -54,9 +61,10 @@ export default function App() {
   const [verifyTicketNumber, setVerifyTicketNumber] = useState<string | null>(getVerifyTicketFromUrl);
 
   const [activeTab, setActiveTab] = useState<Tab>('home');
-  const [isLargeText, setIsLargeText] = useState<boolean>(false);
+  const [isLargeText, setIsLargeText] = useState(false);
   const [soundOn, setSoundOn] = useState<boolean>(isSoundEnabled());
   const [activeScope, setActiveScope] = useState<PrizeScope>('republic');
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Oxirgi saqlangan nusxa darhol ko'rsatiladi, yangisi fonda keladi
   const [boot, setBoot] = useState<BootstrapData | null>(() => dataService.getCachedBootstrap());
@@ -122,9 +130,7 @@ export default function App() {
           await refresh(false);
           return;
         }
-        if (res.data?.status === 'NEED_PHONE_LINK') {
-          setNeedPhoneLink({ botUrl: res.data.botUrl || '' });
-        }
+        if (res.data?.status === 'NEED_PHONE_LINK') setNeedPhoneLink({ botUrl: res.data.botUrl || '' });
       }
       setPhase('login');
     };
@@ -162,15 +168,20 @@ export default function App() {
   };
 
   const toggleSound = () => {
-    const next = !soundOn;
-    setSoundOn(next);
-    setSoundEnabled(next);
+    setSoundOn(!soundOn);
+    setSoundEnabled(!soundOn);
     triggerHaptic(20);
   };
 
   const toggleLanguage = () => {
     setLanguage(language === 'uz' ? 'ru' : 'uz');
     triggerHaptic(20);
+  };
+
+  const goTo = (tab: Tab) => {
+    setActiveTab(tab);
+    window.scrollTo({ top: 0 });
+    triggerHaptic(15);
   };
 
   if (verifyTicketNumber) {
@@ -185,34 +196,25 @@ export default function App() {
     );
   }
 
-  // Telegram Mini App: raqam hali botga ulanmagan
   if (needPhoneLink && phase === 'login') {
     return (
-      <div className="min-h-screen bg-[#06154A] flex flex-col items-center justify-center p-4 text-white">
-        <div className="w-full max-w-md bg-[#0D183A] border border-amber-500/40 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
-          <div className="text-5xl">📲</div>
-          <h2 className="text-xl font-black text-amber-300">{L('Raqamingizni ulang', 'Привяжите номер')}</h2>
-          <p className="text-sm text-slate-300 leading-relaxed">
-            {L(
-              'Botda /start ni bosing va «📲 Kontaktni ulashish» tugmasi orqali raqamingizni yuboring. Keyin ilovani qayta oching.',
-              'Нажмите /start в боте и отправьте номер кнопкой «📲 Kontaktni ulashish». Затем откройте приложение снова.'
-            )}
-          </p>
-          {needPhoneLink.botUrl && (
-            <a
-              href={needPhoneLink.botUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 text-white font-black text-sm flex items-center justify-center"
-            >
-              ✈️ {L('Botni ochish', 'Открыть бота')}
-            </a>
-          )}
-          <button onClick={() => setNeedPhoneLink(null)} className="w-full py-2.5 text-sm text-slate-400 hover:text-white">
-            {L('Telefon raqam bilan kirish', 'Войти по номеру телефона')}
-          </button>
-        </div>
-      </div>
+      <StatusScreen
+        icon={<Send size={28} />}
+        title={L('Raqamingizni ulang', 'Привяжите номер')}
+        text={L(
+          'Botda /start ni bosing va «📲 Kontaktni ulashish» tugmasi orqali raqamingizni yuboring. Keyin ilovani qayta oching.',
+          'Нажмите /start в боте и отправьте номер кнопкой «📲 Kontaktni ulashish». Затем откройте приложение снова.'
+        )}
+      >
+        {needPhoneLink.botUrl && (
+          <a href={needPhoneLink.botUrl} target="_blank" rel="noreferrer" className="btn w-full bg-[#229ED9] text-white">
+            <Send size={18} /> {L('Botni ochish', 'Открыть бота')}
+          </a>
+        )}
+        <button onClick={() => setNeedPhoneLink(null)} className="btn btn-ghost w-full">
+          {L('Telefon raqam bilan kirish', 'Войти по номеру телефона')}
+        </button>
+      </StatusScreen>
     );
   }
 
@@ -220,44 +222,70 @@ export default function App() {
 
   if (phase === 'error' && !boot) {
     return (
-      <div className="min-h-screen bg-[#06154A] flex flex-col items-center justify-center p-4 text-white">
-        <div className="w-full max-w-md bg-[#0D183A] border border-rose-500/40 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
-          <div className="text-5xl">📡</div>
-          <h2 className="text-xl font-black text-rose-300">{L('Ulanib bo\'lmadi', 'Не удалось подключиться')}</h2>
-          <p className="text-sm text-slate-300 leading-relaxed">
-            {errorMessage || L('Internetni tekshirib, qayta urinib ko\'ring.', 'Проверьте интернет и попробуйте снова.')}
-          </p>
-          <button
-            onClick={() => {
-              setPhase('loading');
-              refresh(false);
-            }}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-sm"
-          >
-            {L('Qayta urinish 🔄', 'Повторить 🔄')}
-          </button>
-        </div>
-      </div>
+      <StatusScreen
+        icon={<WifiOff size={28} />}
+        title={L('Ulanib bo\'lmadi', 'Не удалось подключиться')}
+        text={errorMessage || L('Internetni tekshirib, qayta urinib ko\'ring.', 'Проверьте интернет и попробуйте снова.')}
+      >
+        <button
+          onClick={() => {
+            setPhase('loading');
+            refresh(false);
+          }}
+          className="btn btn-primary w-full"
+        >
+          <RefreshCw size={18} /> {L('Qayta urinish', 'Повторить')}
+        </button>
+      </StatusScreen>
     );
   }
 
   if (phase === 'login' || !boot) {
     return (
-      <div className="min-h-screen bg-ambient-mesh bg-[#06154A] text-slate-100 flex flex-col items-center justify-center p-4">
+      <>
         <OfflineIndicator />
-        <LoginModal isOpen={true} isLargeText={isLargeText} onLogin={handleLogin} />
-      </div>
+        <LoginModal isLargeText={isLargeText} onLogin={handleLogin} />
+      </>
     );
   }
+
+  const header = (
+    <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-line pt-safe">
+      <div className="max-w-lg mx-auto h-14 px-4 flex items-center justify-between gap-2">
+        <img src={epcoLogo} alt="EPCO" className="h-7 w-auto" />
+        <div className="flex items-center gap-2">
+          <button onClick={toggleLanguage} className="icon-btn" aria-label={L('Tilni almashtirish', 'Сменить язык')}>
+            {language === 'uz' ? 'RU' : 'UZ'}
+          </button>
+          {boot.registered && (
+            <>
+              <button onClick={() => setIsRulesOpen(true)} className="icon-btn" aria-label={L('Qoidalar', 'Правила')}>
+                <ScrollText size={19} />
+              </button>
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="w-10 h-10 rounded-full bg-brand text-white font-bold flex items-center justify-center"
+                aria-label={L('Profil', 'Профиль')}
+              >
+                {(boot.user.name || 'U').charAt(0).toUpperCase()}
+              </button>
+            </>
+          )}
+          {!boot.registered && (
+            <button onClick={handleLogout} className="icon-btn w-auto px-3">
+              {L('Chiqish', 'Выйти')}
+            </button>
+          )}
+        </div>
+      </div>
+    </header>
+  );
 
   // Bazada yo'q admin — faqat admin panel
   if (!boot.registered && boot.isAdmin) {
     return (
-      <div className="min-h-screen bg-ambient-mesh text-slate-100">
-        <header className="sticky top-0 z-40 bg-[#080C14]/94 backdrop-blur-2xl border-b border-amber-500/20 px-4 py-3 flex items-center justify-between">
-          <div className="font-black">EPCO <span className="text-amber-400">Shou</span></div>
-          <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-white">{L('Chiqish', 'Выйти')}</button>
-        </header>
+      <div className="min-h-screen bg-page">
+        {header}
         <main className="max-w-lg mx-auto p-4 pb-10">
           <AdminPanel currentMonth={boot.config.currentMonthName} />
         </main>
@@ -281,117 +309,76 @@ export default function App() {
   const { user, stats, config, tickets, winners } = boot;
   const leaderboardEntries = activeScope === 'region' ? boot.leaderboard.region : boot.leaderboard.republic;
   const timeLeft = stats.isLastDayOfMonth
-    ? L(`${stats.hoursRemainingInMonth} soat qoldi`, `осталось ${stats.hoursRemainingInMonth} ч`)
-    : L(`${stats.daysRemainingInMonth} kun qoldi`, `осталось ${stats.daysRemainingInMonth} дн.`);
+    ? L(`oy tugashiga ${stats.hoursRemainingInMonth} soat`, `до конца месяца ${stats.hoursRemainingInMonth} ч`)
+    : L(`oy tugashiga ${stats.daysRemainingInMonth} kun`, `до конца месяца ${stats.daysRemainingInMonth} дн.`);
 
-  const tabs: { key: string; icon: string; label: string; onClick: () => void; active: boolean }[] = [
-    { key: 'home', icon: '🏠', label: L('Asosiy', 'Главная'), onClick: () => setActiveTab('home'), active: activeTab === 'home' },
-    { key: 'tickets', icon: '🎟️', label: `${L('Biletlar', 'Билеты')} (${stats.tickets})`, onClick: () => setIsTicketsOpen(true), active: false },
-    { key: 'leaderboard', icon: '🏆', label: L('Reyting', 'Рейтинг'), onClick: () => setActiveTab('leaderboard'), active: activeTab === 'leaderboard' },
+  const tabs: { key: string; icon: React.ReactNode; label: string; onClick: () => void; active: boolean }[] = [
+    { key: 'home', icon: <Home size={22} />, label: L('Asosiy', 'Главная'), onClick: () => goTo('home'), active: activeTab === 'home' },
+    { key: 'tickets', icon: <Ticket size={22} />, label: L('Biletlar', 'Билеты'), onClick: () => setIsTicketsOpen(true), active: false },
+    { key: 'leaderboard', icon: <Trophy size={22} />, label: L('Reyting', 'Рейтинг'), onClick: () => goTo('leaderboard'), active: activeTab === 'leaderboard' },
   ];
   if (boot.isAdmin) {
-    tabs.push({ key: 'admin', icon: '🛠', label: 'Admin', onClick: () => setActiveTab('admin'), active: activeTab === 'admin' });
+    tabs.push({ key: 'admin', icon: <Wrench size={22} />, label: 'Admin', onClick: () => goTo('admin'), active: activeTab === 'admin' });
   }
 
-  return (
-    <div className={`min-h-screen bg-ambient-mesh text-slate-100 flex flex-col ${isLargeText ? 'text-lg' : 'text-base'}`}>
-      <OfflineIndicator />
+  const quickAction = (icon: React.ReactNode, label: string, onClick: () => void) => (
+    <button onClick={onClick} className="card flex flex-col items-center justify-center gap-1.5 py-3.5 active:scale-[0.98] transition-transform">
+      <span className="w-10 h-10 rounded-2xl bg-brand-soft text-brand flex items-center justify-center">{icon}</span>
+      <span className="text-sm font-semibold">{label}</span>
+    </button>
+  );
 
+  return (
+    <div className={`min-h-screen bg-page flex flex-col ${isLargeText ? 'text-[17px]' : 'text-[15px]'}`}>
+      <OfflineIndicator />
       {demoActive && (
-        <div className="bg-amber-400 text-slate-950 font-black text-[11px] uppercase tracking-widest text-center py-1 px-2 sticky top-0 z-50">
-          ⚠️ {L('Demo rejim — haqiqiy ma\'lumot emas', 'Демо-режим — не настоящие данные')}
+        <div className="bg-gold text-white text-xs font-bold text-center py-1">
+          {L('Demo rejim — haqiqiy ma\'lumot emas', 'Демо-режим — не настоящие данные')}
         </div>
       )}
-
-      <header className="sticky top-0 z-40 bg-[#080C14]/94 backdrop-blur-2xl border-b border-amber-500/20 px-4 py-2.5 pt-safe flex items-center justify-between gap-2 shadow-2xl">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 flex items-center justify-center text-[#06154A] font-black">
-            E
-          </div>
-          <div className="font-black text-base tracking-tight whitespace-nowrap">
-            EPCO <span className="text-amber-400">Shou</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={toggleLanguage}
-            className="h-9 px-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-black"
-            aria-label={L('Tilni almashtirish', 'Сменить язык')}
-          >
-            {language === 'uz' ? 'RU' : 'UZ'}
-          </button>
-          <button
-            onClick={() => setIsRulesOpen(true)}
-            className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/15 text-base flex items-center justify-center"
-            aria-label={L('Qoidalar', 'Правила')}
-          >
-            📜
-          </button>
-          <button
-            onClick={() => setIsProfileOpen(true)}
-            className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-300 font-black text-sm flex items-center justify-center"
-            aria-label={L('Profil', 'Профиль')}
-          >
-            {(user.name || 'U').charAt(0).toUpperCase()}
-          </button>
-        </div>
-      </header>
+      {header}
 
       {syncFailed && (
-        <button onClick={() => refresh(true)} className="w-full bg-amber-500/15 border-b border-amber-500/30 text-amber-200 text-xs py-1.5 px-3">
-          {L(
-            'Ma\'lumot yangilanmadi — oxirgi saqlangan holat ko\'rsatilmoqda. Yangilash uchun bosing 🔄',
-            'Данные не обновились — показано последнее сохранённое. Нажмите, чтобы обновить 🔄'
-          )}
+        <button onClick={() => refresh(true)} className="w-full bg-gold-soft text-[#8a5a00] text-sm py-2 px-4">
+          {L('Ma\'lumot yangilanmadi — yangilash uchun bosing', 'Данные не обновились — нажмите, чтобы обновить')}
         </button>
       )}
 
-      <main className="flex-1 w-full max-w-lg mx-auto p-3.5 sm:p-5 pb-28 space-y-4">
+      <main className="flex-1 w-full max-w-lg mx-auto px-4 pt-4 pb-28 space-y-4">
         {activeTab === 'home' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3 bg-[#0E1424]/85 p-3 px-4 rounded-2xl border border-white/10">
-              <div className="min-w-0">
-                <div className="text-xs text-slate-400">{L('Assalomu alaykum,', 'Здравствуйте,')}</div>
-                <div className="font-black text-white truncate">{user.name}</div>
-                <div className="text-[11px] text-slate-400 truncate">
-                  {user.region} · {localizeMonth(config.currentMonthName, language)}: {timeLeft}
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveTab('leaderboard')}
-                className="shrink-0 text-center px-3 py-2 rounded-xl bg-amber-400/10 border border-amber-400/40"
-              >
-                <div className="text-[10px] text-amber-300/80 font-bold uppercase">{L('Reyting', 'Рейтинг')}</div>
-                <div className="text-lg font-black text-amber-300 tabular-nums leading-none">#{stats.currentRank}</div>
-              </button>
+          <>
+            <HomeHero
+              name={user.name}
+              stats={stats}
+              timeLeft={timeLeft}
+              onOpenTickets={() => setIsTicketsOpen(true)}
+              onOpenLeaderboard={() => goTo('leaderboard')}
+            />
+
+            <div className="grid grid-cols-3 gap-3">
+              {quickAction(<Ticket size={20} />, L('Biletlarim', 'Мои билеты'), () => setIsTicketsOpen(true))}
+              {quickAction(<Trophy size={20} />, L('Reyting', 'Рейтинг'), () => goTo('leaderboard'))}
+              {quickAction(<Medal size={20} />, L('G\'oliblar', 'Победители'), () => setIsWinnersOpen(true))}
             </div>
 
-            {config.liveUrl && (
-              <a
-                href={config.liveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full py-3.5 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-black shadow-[0_8px_30px_rgba(220,38,38,0.35)]"
-              >
-                <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
-                {L('Jonli efir / videoni ko\'rish', 'Смотреть прямой эфир / видео')}
-              </a>
-            )}
+            <PrizeCard stats={stats} config={config} />
 
-            <OilFlaskWidget stats={stats} language={language} isLargeText={isLargeText} onOpenTicketsModal={() => setIsTicketsOpen(true)} />
-            <ProbabilityCard stats={stats} config={config} isLargeText={isLargeText} />
-            <GrandPrizeBanner stats={stats} config={config} onNavigateToLeaderboard={() => setActiveTab('leaderboard')} />
-            <SimulatorCard stats={stats} config={config} isLargeText={isLargeText} />
-
-            <button
-              onClick={() => setIsWinnersOpen(true)}
-              className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-sm font-bold text-slate-200 hover:bg-white/10"
-            >
-              🏅 {L('G\'oliblar', 'Победители')}
-              {winners.length > 0 ? ` (${winners.length})` : ''}
-            </button>
-          </div>
+            <section className="card overflow-hidden">
+              <button onClick={() => setDetailsOpen(!detailsOpen)} className="w-full flex items-center justify-between px-4 py-4 text-left">
+                <span>
+                  <span className="block font-bold">{L('Batafsil hisob-kitob', 'Подробный расчёт')}</span>
+                  <span className="block text-sm text-muted">{L('Shouga chiqish imkoniyati va kalkulyator', 'Шанс на шоу и калькулятор')}</span>
+                </span>
+                <ChevronDown size={22} className={`text-muted transition-transform ${detailsOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {detailsOpen && (
+                <div className="px-4 pb-5 space-y-6 border-t border-line pt-4">
+                  <ProbabilityCard stats={stats} config={config} />
+                  <SimulatorCard stats={stats} config={config} />
+                </div>
+              )}
+            </section>
+          </>
         )}
 
         {activeTab === 'leaderboard' && (
@@ -399,11 +386,10 @@ export default function App() {
             entries={leaderboardEntries}
             stats={stats}
             user={user}
-            isLargeText={isLargeText}
             activeScope={activeScope}
             onChangeScope={(scope) => {
               setActiveScope(scope);
-              triggerHaptic(20);
+              triggerHaptic(15);
             }}
           />
         )}
@@ -411,36 +397,27 @@ export default function App() {
         {activeTab === 'admin' && boot.isAdmin && <AdminPanel currentMonth={config.currentMonthName} />}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#080C14]/94 backdrop-blur-2xl border-t border-amber-500/25 pb-safe">
-        <div className={`max-w-md mx-auto grid ${tabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3'} items-center h-16 px-3 gap-1`}>
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 backdrop-blur-xl border-t border-line pb-safe">
+        <div className={`max-w-lg mx-auto grid ${tabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3'} h-16 px-2`}>
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => {
                 tab.onClick();
-                triggerHaptic(20);
+                triggerHaptic(15);
               }}
-              className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl relative ${
-                tab.active ? 'text-amber-400 font-black' : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex flex-col items-center justify-center gap-0.5 ${tab.active ? 'text-brand' : 'text-muted'}`}
             >
-              <span className="text-xl">{tab.icon}</span>
-              <span className="text-xs mt-0.5 tracking-tight font-bold">{tab.label}</span>
-              {tab.active && <span className="absolute bottom-1 w-6 h-1 rounded-full bg-amber-400" />}
+              {tab.icon}
+              <span className="text-xs font-semibold">{tab.label}</span>
             </button>
           ))}
         </div>
       </nav>
 
-      <TicketsModal isOpen={isTicketsOpen} tickets={tickets} stats={stats} isLargeText={isLargeText} onClose={() => setIsTicketsOpen(false)} />
-      <RulesAndTrustModal isOpen={isRulesOpen} config={config} isLargeText={isLargeText} onClose={() => setIsRulesOpen(false)} />
-      <WinnersWallModal
-        isOpen={isWinnersOpen}
-        winners={winners}
-        grandPrize={config.grandPrize}
-        isLargeText={isLargeText}
-        onClose={() => setIsWinnersOpen(false)}
-      />
+      <TicketsModal isOpen={isTicketsOpen} tickets={tickets} stats={stats} onClose={() => setIsTicketsOpen(false)} />
+      <RulesAndTrustModal isOpen={isRulesOpen} config={config} onClose={() => setIsRulesOpen(false)} />
+      <WinnersWallModal isOpen={isWinnersOpen} winners={winners} grandPrize={config.grandPrize} onClose={() => setIsWinnersOpen(false)} />
       <ProfileModal
         isOpen={isProfileOpen}
         user={user}

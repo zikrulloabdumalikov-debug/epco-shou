@@ -8,6 +8,9 @@ if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
     const tg = (window as any).Telegram.WebApp;
     tg.ready();
     tg.expand();
+    // Telegram sarlavhasi ilova foniga mos (oq)
+    tg.setHeaderColor?.('#ffffff');
+    tg.setBackgroundColor?.('#f3f6fb');
   } catch (err) {
     console.warn('[Telegram WebApp] Init error:', err);
   }

@@ -16,14 +16,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['favicon.png', 'apple-touch-icon.png'],
         manifest: {
           id: base,
           name: 'EPCO - Katta Rozig\'ish Shou',
           short_name: 'EPCO Shou',
           description: 'EPCO motor moylari mijozlari uchun Katta Rozig\'ish Shou mobil ilovasi.',
-          theme_color: '#06154A',
-          background_color: '#06154A',
+          theme_color: '#ffffff',
+          background_color: '#ffffff',
           display: 'standalone',
           start_url: base,
           scope: base,
@@ -49,7 +49,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,webp}'],
           runtimeCaching: [
             {
               urlPattern: ({ url }) => url.href.includes('script.google.com') || url.pathname.startsWith('/api'),

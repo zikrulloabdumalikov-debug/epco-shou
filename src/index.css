@@ -1,67 +1,66 @@
 @import "tailwindcss";
 
+/*
+ * EPCO brend tizimi — logotipdan: ko'k #0064FF, oq, geometrik dumaloq shrift.
+ * Ranglar faqat shu yerda; komponentlar bg-brand, text-ink, border-line kabi nomlarni ishlatadi.
+ */
+@theme {
+  --font-sans: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-brand: #0064ff;
+  --color-brand-dark: #0048c2;
+  --color-brand-deep: #00308a;
+  --color-brand-soft: #e8f1ff;
+
+  --color-page: #f3f6fb;
+  --color-surface: #ffffff;
+  --color-ink: #0b1a33;
+  --color-muted: #5b6b85;
+  --color-line: #e3e9f2;
+
+  --color-ok: #12a35f;
+  --color-ok-soft: #e6f7ee;
+  --color-bad: #e5372b;
+  --color-bad-soft: #fdeceb;
+  --color-gold: #f5a300;
+  --color-gold-soft: #fff4d9;
+}
+
 @layer base {
   :root {
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
-    --sal: env(safe-area-inset-left, 0px);
-    --sar: env(safe-area-inset-right, 0px);
+  }
+
+  html,
+  body {
+    background-color: var(--color-page);
+    color: var(--color-ink);
   }
 
   body {
-    font-family: 'Rubik', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-    background-color: #080B12;
-    color: #F8FAFC;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(245, 158, 11, 0.35) transparent;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: default;
   }
 }
 
 .pb-safe {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
 }
 
 .pt-safe {
-  padding-top: max(env(safe-area-inset-top, 0px), 12px);
+  padding-top: max(env(safe-area-inset-top, 0px), 10px);
 }
 
-/* Custom Sleek Amber & Dark Obsidian Scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(245, 158, 11, 0.35) transparent;
-}
-
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(245, 158, 11, 0.3);
-  border-radius: 9999px;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(245, 158, 11, 0.65);
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
-}
-
-::-webkit-scrollbar-thumb:active {
-  background: #F59E0B;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-/* Custom scrollbar hide */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -70,43 +69,160 @@
   scrollbar-width: none;
 }
 
-/* Creative High-Performance Glassmorphism Utilities */
-.glass-card {
-  background: linear-gradient(165deg, rgba(26, 34, 53, 0.8) 0%, rgba(15, 20, 32, 0.85) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  border-radius: 22px;
+/* ── Qayta ishlatiladigan bloklar ─────────────────────────────── */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 24px;
+  box-shadow: 0 1px 2px rgba(11, 26, 51, 0.04), 0 8px 24px -16px rgba(11, 26, 51, 0.18);
 }
 
-.glass-card-gold {
-  background: linear-gradient(145deg, rgba(245, 158, 11, 0.18) 0%, rgba(20, 26, 42, 0.9) 55%, rgba(217, 119, 6, 0.12) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  border-top: 1px solid rgba(253, 224, 71, 0.6);
-  box-shadow: 0 12px 35px -8px rgba(245, 158, 11, 0.25), inset 0 1px 0 rgba(254, 240, 138, 0.2);
-  border-radius: 22px;
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 20px;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 16px;
+  transition: transform 0.12s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.45;
+}
+.btn-primary {
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: 0 8px 20px -8px rgba(0, 100, 255, 0.6);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-brand-dark);
+}
+.btn-soft {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-muted);
+}
+.btn-danger {
+  background: var(--color-bad-soft);
+  color: var(--color-bad);
 }
 
-.glass-card-emerald {
-  background: linear-gradient(145deg, rgba(16, 185, 129, 0.18) 0%, rgba(15, 23, 42, 0.9) 60%, rgba(5, 150, 105, 0.1) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(52, 211, 153, 0.4);
-  border-top: 1px solid rgba(110, 231, 183, 0.6);
-  box-shadow: 0 12px 35px -8px rgba(16, 185, 129, 0.2), inset 0 1px 0 rgba(167, 243, 208, 0.2);
-  border-radius: 22px;
+.field {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1.5px solid var(--color-line);
+  background: #fff;
+  color: var(--color-ink);
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+textarea.field {
+  padding: 12px 16px;
+}
+.field:focus {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 4px rgba(0, 100, 255, 0.12);
+}
+.field::placeholder {
+  color: #9aa7bd;
 }
 
-/* Automotive Carbon Grid Ambient Texture */
-.bg-ambient-mesh {
-  background-color: #080B12;
-  background-image: 
-    radial-gradient(at 50% 0%, rgba(245, 158, 11, 0.22) 0px, transparent 65%),
-    radial-gradient(at 90% 20%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
-    radial-gradient(at 10% 40%, rgba(234, 88, 12, 0.12) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(15, 23, 42, 0.8) 0px, transparent 70%);
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* Pastdan chiqadigan oyna (telefonda qulay) */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(11, 26, 51, 0.45);
+  backdrop-filter: blur(4px);
+  animation: fade-in 0.18s ease;
+}
+.sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 28px 28px 0 0;
+  padding: 8px 20px max(env(safe-area-inset-bottom, 0px), 20px);
+  animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sheet::before {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 4px;
+  margin: 4px auto 12px;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+@media (min-width: 640px) {
+  .sheet-backdrop {
+    align-items: center;
+  }
+  .sheet {
+    border-radius: 28px;
+  }
+}
+
+/* Asosiy bilet kartasi — logotip doirasidan ilhomlangan */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  color: #fff;
+  background: linear-gradient(150deg, #0a6cff 0%, #0064ff 45%, #0048c2 100%);
+  box-shadow: 0 18px 40px -20px rgba(0, 72, 194, 0.75);
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  right: -70px;
+  top: -70px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
 }

@@ -23,7 +23,7 @@ export const OfflineIndicator: React.FC = () => {
   if (isOnline) return null;
 
   return (
-    <div className="fixed top-14 left-4 right-4 z-50 flex items-center justify-center gap-2 rounded-2xl bg-[#FF4D63] px-3 py-2 text-xs font-bold text-white shadow-xl animate-in slide-in-from-top-2">
+    <div className="fixed top-16 left-4 right-4 z-50 flex items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-xl">
       <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
       <span>{L('Internet yo\'q — oxirgi saqlangan ma\'lumot ko\'rsatilmoqda', 'Нет интернета — показаны сохранённые данные')}</span>
     </div>
