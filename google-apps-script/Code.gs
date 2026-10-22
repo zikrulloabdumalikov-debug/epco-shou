@@ -2,7 +2,7 @@
  * EPCO – KATTA ROZIG'ISH SHOU (Production Backend)
  * Google Apps Script Web App & Telegram Bot
  *
- * Versiya: 2.4.0 (admin panel, ommaviy xabarlar). Mijozlar "Ustalar" varag'idan o'qiladi; "Ulanishlar" va
+ * Versiya: 2.5.0 (botda tezkor tugmalar, admin panel, ommaviy xabarlar). Mijozlar "Ustalar" varag'idan o'qiladi; "Ulanishlar" va
  * "Yangi_mijozlar" varaqlari avtomatik yaratiladi.
  *
  * 2.2.0 xavfsizlik: kirish faqat Telegram botdagi 6 xonali kod yoki imzosi
@@ -34,7 +34,8 @@ var DEFAULTS = {
   PRIZES_TEXT: "1 500$ gacha qiymatdagi turli sovg'alar va pul mukofotlari",
   PRIZES_TEXT_RU: "Подарки и денежные призы стоимостью до 1 500$",
   LIVE_URL: "",
-  BOT_USERNAME: "epcoaksiya_bot"
+  BOT_USERNAME: "epcoaksiya_bot",
+  APP_URL: "https://zikrulloabdumalikov-debug.github.io/epco-shou/" // Script Properties: APP_URL bilan almashtirish mumkin
 };
 
 /**
@@ -50,6 +51,7 @@ function getConfig() {
     if (props.ADMIN_CHAT_ID) config.ADMIN_CHAT_ID = props.ADMIN_CHAT_ID;
     if (props.WEBAPP_URL) config.WEBAPP_URL = props.WEBAPP_URL;
     if (props.ADMIN_PHONES) config.ADMIN_PHONES = props.ADMIN_PHONES;
+    if (props.APP_URL) config.APP_URL = props.APP_URL;
     if (props.set_grand_prize) config.GRAND_PRIZE = props.set_grand_prize;
     if (props.set_prizes_text) config.PRIZES_TEXT = props.set_prizes_text;
     if (props.set_prizes_text_ru) config.PRIZES_TEXT_RU = props.set_prizes_text_ru;
@@ -1553,6 +1555,7 @@ function handleTelegramWebhook(update) {
   var msg = update.message;
   var chatId = msg.chat.id;
   var text = msg.text || "";
+  var lang = botLang(msg.from);
 
   // 1. Kontakt ulashilganda
   if (msg.contact && msg.contact.phone_number) {
@@ -1562,7 +1565,9 @@ function handleTelegramWebhook(update) {
       String(msg.contact.user_id) === String(msg.from.id) &&
       msg.chat && msg.chat.type === "private";
     if (!isOwnContact) {
-      sendTelegramMessage(chatId, "⚠️ Iltimos, faqat o'zingizning raqamingizni pastdagi «📲 Kontaktni ulashish» tugmasi orqali yuboring.");
+      sendTelegramMessage(chatId, botT(lang,
+        "⚠️ Iltimos, faqat o'zingizning raqamingizni pastdagi «📲 Kontaktni ulashish» tugmasi orqali yuboring.",
+        "⚠️ Пожалуйста, отправьте только свой номер кнопкой «📲 Kontaktni ulashish» внизу."));
       return;
     }
 
@@ -1570,19 +1575,216 @@ function handleTelegramWebhook(update) {
     if (phoneKey) {
       linkTelegramPhone(String(msg.from.id), String(chatId), phoneKey);
       recordActivity(phoneKey, "link", msg.from);
-
-      sendTelegramMessage(chatId, "✅ Rahmat! Raqamingiz (" + formatPhoneUz(phoneKey) + ") muvaffaqiyatli bog'landi.\n\nEndi EPCO Shou ilovasiga bemalol kirishingiz mumkin!");
+      sendBot(chatId, botT(lang,
+        "✅ Rahmat! Raqamingiz (" + formatPhoneUz(phoneKey) + ") bog'landi.\n\nPastdagi tugmalar orqali biletlaringiz, reytingdagi o'rningiz va qolgan vaqtni bilib olishingiz mumkin 👇",
+        "✅ Спасибо! Номер (" + formatPhoneUz(phoneKey) + ") привязан.\n\nКнопки внизу покажут ваши билеты, место в рейтинге и оставшееся время 👇"),
+        mainKeyboard(lang));
       return;
     }
   }
 
-  // 2. /start buyrug'i
+  var linkedPhone = msg.from ? PropertiesService.getScriptProperties().getProperty("tg_phone_" + msg.from.id) : null;
+
+  // 2. /start
   if (text.indexOf("/start") === 0) {
-    sendTelegramContactButton(chatId, "Assalomu alaykum! EPCO Katta Rozig'ish Shou botiga xush kelibsiz.\n\nIlovaga kirish uchun quyidagi tugmani bosib telefon raqamingizni tasdiqlang:");
+    if (linkedPhone) {
+      sendBot(chatId, botT(lang,
+        "Assalomu alaykum! EPCO Katta Rozig'ish Shou botiga xush kelibsiz.\nQuyidagi tugmalardan birini tanlang 👇",
+        "Здравствуйте! Добро пожаловать в бот EPCO Большое шоу.\nВыберите кнопку ниже 👇"),
+        mainKeyboard(lang));
+    } else {
+      sendTelegramContactButton(chatId, botT(lang,
+        "Assalomu alaykum! EPCO Katta Rozig'ish Shou botiga xush kelibsiz.\n\nBoshlash uchun pastdagi tugmani bosib telefon raqamingizni tasdiqlang:",
+        "Здравствуйте! Добро пожаловать в бот EPCO Большое шоу.\n\nЧтобы начать, подтвердите номер телефона кнопкой ниже:"));
+    }
     return;
   }
 
-  return;
+  // 3. Tezkor tugmalar va buyruqlar
+  var action = detectBotAction(text);
+  if (!linkedPhone) {
+    if (action || text) {
+      sendTelegramContactButton(chatId, botT(lang,
+        "Avval telefon raqamingizni tasdiqlang 👇",
+        "Сначала подтвердите номер телефона 👇"));
+    }
+    return;
+  }
+  if (action) {
+    recordActivity(linkedPhone, "active");
+    var answer = botAnswer(action, linkedPhone, lang);
+    sendBot(chatId, answer.text, answer.markup || mainKeyboard(lang));
+    return;
+  }
+  if (text) {
+    sendBot(chatId, botT(lang, "Quyidagi tugmalardan birini tanlang 👇", "Выберите одну из кнопок ниже 👇"), mainKeyboard(lang));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7.2 BOTDAGI TEZKOR TUGMALAR: biletlar, o'rin, qolgan vaqt, ilova
+// ═══════════════════════════════════════════════════════════════════════════
+
+var BOT_BUTTONS = {
+  tickets: ["🎟 Biletlarim", "🎟 Мои билеты"],
+  rank: ["🏆 O'rnim", "🏆 Моё место"],
+  time: ["⏳ Qancha qoldi", "⏳ Сколько осталось"],
+  app: ["📱 Ilovani ochish", "📱 Открыть приложение"]
+};
+var BOT_COMMANDS = { "/biletlar": "tickets", "/orin": "rank", "/qoldi": "time", "/ilova": "app" };
+
+/** Telegram ilovasi ruscha bo'lsa — ruscha, aks holda o'zbekcha */
+function botLang(from) {
+  return from && /^ru/i.test(String(from.language_code || "")) ? "ru" : "uz";
+}
+
+function botT(lang, uz, ru) {
+  return lang === "ru" ? ru : uz;
+}
+
+function escapeHtml(s) {
+  return String(s === undefined || s === null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function usd(n) {
+  return "$" + String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function mainKeyboard(lang) {
+  var i = lang === "ru" ? 1 : 0;
+  return {
+    keyboard: [
+      [{ text: BOT_BUTTONS.tickets[i] }, { text: BOT_BUTTONS.rank[i] }],
+      [{ text: BOT_BUTTONS.time[i] }, { text: BOT_BUTTONS.app[i] }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true
+  };
+}
+
+/**
+ * Inline web_app tugmasi: Telegram ichida ochiladi va imzolangan initData bilan avtomatik kiradi
+ * (pastki klaviaturadagi web_app tugmalari initData bermaydi, shuning uchun inline ishlatiladi).
+ */
+function appButton(lang) {
+  return {
+    inline_keyboard: [[{
+      text: botT(lang, "📱 EPCO Shou ilovasini ochish", "📱 Открыть приложение EPCO Шоу"),
+      web_app: { url: getConfig().APP_URL }
+    }]]
+  };
+}
+
+function sendBot(chatId, html, replyMarkup) {
+  var payload = { chat_id: chatId, text: html, parse_mode: "HTML", disable_web_page_preview: true };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  return telegramApi("sendMessage", payload) !== null;
+}
+
+function detectBotAction(text) {
+  var t = String(text || "").trim();
+  var cmd = t.split(/[\s@]/)[0].toLowerCase();
+  if (BOT_COMMANDS[cmd]) return BOT_COMMANDS[cmd];
+  for (var key in BOT_BUTTONS) {
+    if (BOT_BUTTONS[key].indexOf(t) !== -1) return key;
+  }
+  return null;
+}
+
+function formatDateDMY(iso) {
+  var p = String(iso || "").split("-");
+  return p.length === 3 ? p[2] + "." + p[1] + "." + p[0] : String(iso || "");
+}
+
+/** Tugma javobi: { text (HTML), markup? } */
+function botAnswer(action, phoneKey, lang) {
+  if (action === "app") {
+    return { text: botT(lang, "Ilovani ochish uchun tugmani bosing 👇", "Нажмите кнопку, чтобы открыть приложение 👇"), markup: appButton(lang) };
+  }
+
+  var config = getConfig();
+  var dataObj = loadAndAggregateMasters();
+  var master = dataObj.clientsMap[phoneKey];
+  if (!master) {
+    return {
+      text: botT(lang,
+        "Siz hali aksiya ishtirokchilari ro'yxatida yo'qsiz.\nIlovada qisqa anketa to'ldiring — menejerimiz siz bilan bog'lanadi.",
+        "Вас пока нет в списке участников акции.\nЗаполните короткую анкету в приложении — менеджер свяжется с вами."),
+      markup: appButton(lang)
+    };
+  }
+
+  var s = buildClientStats(master, dataObj, config);
+  var timing = getMonthTiming();
+
+  if (action === "tickets") {
+    if (s.tickets === 0) {
+      return { text: botT(lang,
+        "🎟 Hozircha biletingiz yo'q.\nBirinchi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Har $1,000 to'lov = 1 bilet</i>",
+        "🎟 Пока у вас нет билетов.\nДо первого билета: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Каждые $1,000 = 1 билет</i>") };
+    }
+    if (s.isDebtCleared) {
+      return { text: botT(lang,
+        "🎟 Sizda <b>" + s.tickets + " ta bilet</b> — ✅ hammasi faol\nKeyingi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>",
+        "🎟 У вас <b>" + s.tickets + " бил.</b> — ✅ все активны\nДо следующего билета: <b>" + usd(s.gapToNextTicket) + "</b>") };
+    }
+    return { text: botT(lang,
+      "🎟 Sizda <b>" + s.tickets + " ta bilet</b> — ⚠️ hozircha nofaol\nQarz: <b>" + usd(s.debtAmount) + "</b>. Qarzni yopsangiz, biletlar darhol faollashadi.",
+      "🎟 У вас <b>" + s.tickets + " бил.</b> — ⚠️ пока неактивны\nДолг: <b>" + usd(s.debtAmount) + "</b>. Погасите долг — билеты сразу активируются.") };
+  }
+
+  if (action === "rank") {
+    var total = String(s.totalParticipants).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    var lines = [
+      botT(lang, "🏆 Respublikada <b>#" + s.currentRank + "</b> (" + total + " tadan)", "🏆 В республике <b>#" + s.currentRank + "</b> (из " + total + ")"),
+      botT(lang, "📍 Viloyatda <b>#" + s.regionRank + "</b> (" + s.regionTotal + " tadan)", "📍 В регионе <b>#" + s.regionRank + "</b> (из " + s.regionTotal + ")")
+    ];
+    lines.push(s.currentRank > 1
+      ? botT(lang,
+        "⬆️ " + (s.currentRank - 1) + "-o'ringa chiqish uchun yana <b>" + usd(s.gapToNextRank) + "</b> kerak",
+        "⬆️ До " + (s.currentRank - 1) + "-го места нужно ещё <b>" + usd(s.gapToNextRank) + "</b>")
+      : botT(lang, "🥇 Siz 1-o'rindasiz!", "🥇 Вы на 1-м месте!"));
+    return { text: lines.join("\n") };
+  }
+
+  // action === "time"
+  var left = timing.isLastDay
+    ? botT(lang, timing.hoursRemaining + " soat", timing.hoursRemaining + " ч")
+    : botT(lang, timing.daysRemaining + " kun", timing.daysRemaining + " дн.");
+  return { text: [
+    botT(lang, "⏳ Oy tugashiga <b>" + left + "</b> qoldi", "⏳ До конца месяца осталось <b>" + left + "</b>"),
+    botT(lang,
+      "Shu muddatda yana <b>" + usd(s.gapToNextTicket) + "</b> to'lasangiz — +1 bilet",
+      "Оплатите ещё <b>" + usd(s.gapToNextTicket) + "</b> за это время — +1 билет"),
+    botT(lang, "🚐 Bosh sovg'a: <b>" + escapeHtml(config.GRAND_PRIZE) + "</b>", "🚐 Главный приз: <b>" + escapeHtml(config.GRAND_PRIZE) + "</b>"),
+    botT(lang, "📅 Aksiya " + formatDateDMY(config.PROMO_END) + " gacha davom etadi", "📅 Акция продлится до " + formatDateDMY(config.PROMO_END))
+  ].join("\n") };
+}
+
+/**
+ * Bot menyusi: chap pastdagi "EPCO Shou" tugmasi ilovani ochadi, "/" ro'yxatida buyruqlar.
+ * setTelegramWebhook uni avtomatik chaqiradi; alohida ham ishga tushirish mumkin.
+ */
+function setupBotMenu() {
+  var config = getConfig();
+  if (!config.BOT_TOKEN) {
+    Logger.log("BOT_TOKEN o'rnatilmagan!");
+    return;
+  }
+  telegramApi("setChatMenuButton", { menu_button: { type: "web_app", text: "EPCO Shou", web_app: { url: config.APP_URL } } });
+  telegramApi("setMyCommands", { commands: [
+    { command: "biletlar", description: "🎟 Biletlarim" },
+    { command: "orin", description: "🏆 Reytingdagi o'rnim" },
+    { command: "qoldi", description: "⏳ Oy tugashiga qancha qoldi" },
+    { command: "ilova", description: "📱 Ilovani ochish" }
+  ] });
+  telegramApi("setMyCommands", { language_code: "ru", commands: [
+    { command: "biletlar", description: "🎟 Мои билеты" },
+    { command: "orin", description: "🏆 Моё место в рейтинге" },
+    { command: "qoldi", description: "⏳ Сколько осталось до конца месяца" },
+    { command: "ilova", description: "📱 Открыть приложение" }
+  ] });
+  Logger.log("Bot menyusi o'rnatildi: " + config.APP_URL);
 }
 
 /**
@@ -1847,6 +2049,7 @@ function setTelegramWebhook() {
   var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   Logger.log("Webhook manzili: " + webAppUrl + "?secret=***");
   Logger.log("Webhook javobi: " + response.getContentText());
+  setupBotMenu();
 }
 
 /**

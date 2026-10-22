@@ -721,3 +721,78 @@ describe('Apps Script: reytingda qarzdor biletlari', () => {
     expect(botir.isDebtCleared).toBe(false);
   });
 });
+
+describe('Apps Script: botdagi tezkor tugmalar', () => {
+  const press = (env: ReturnType<typeof createEnv>, userId: number, text: string, language_code = 'uz') => {
+    env.sent.length = 0;
+    env.webhook({ update_id: Math.floor(Math.random() * 1e9), message: { chat: { id: userId, type: 'private' }, from: { id: userId, language_code }, text } });
+    return env.sent.filter((m) => m.url.endsWith('/sendMessage')).map((m) => m.payload);
+  };
+
+  it('kontakt tasdiqlangach 4 ta doimiy tugma chiqadi', () => {
+    const env = createEnv();
+    env.shareContact(111, '+998900000001');
+    const reply = env.sent.filter((m) => m.url.endsWith('/sendMessage')).pop()!.payload;
+    expect(reply.reply_markup.keyboard.flat().map((b: any) => b.text)).toEqual(['🎟 Biletlarim', "🏆 O'rnim", '⏳ Qancha qoldi', '📱 Ilovani ochish']);
+    expect(reply.reply_markup.is_persistent).toBe(true);
+  });
+
+  it('Biletlarim / O\'rnim / Qancha qoldi to\'g\'ri raqamlar bilan javob beradi', () => {
+    const env = createEnv();
+    env.shareContact(333, '+998930000003'); // Sardor: $800, qarzsiz, 3-o'rin
+    expect(press(env, 333, '🎟 Biletlarim')[0].text).toContain('Birinchi biletgacha: <b>$200</b>');
+
+    const rank = press(env, 333, "🏆 O'rnim")[0].text;
+    expect(rank).toContain('Respublikada <b>#3</b> (3 tadan)');
+    expect(rank).toContain("2-o'ringa chiqish uchun yana <b>$401</b>");
+
+    const time = press(env, 333, '/qoldi')[0].text;
+    expect(time).toMatch(/Oy tugashiga <b>\d+ (kun|soat)<\/b> qoldi/);
+    expect(time).toContain('Chevrolet DAMAS');
+  });
+
+  it('qarzdorga biletlar soni va qarz ko\'rsatiladi', () => {
+    const env = createEnv();
+    env.shareContact(222, '+998910000002'); // Botir: 1 bilet, qarz $150
+    const text = press(env, 222, '🎟 Biletlarim')[0].text;
+    expect(text).toContain('<b>1 ta bilet</b> — ⚠️ hozircha nofaol');
+    expect(text).toContain('Qarz: <b>$150</b>');
+  });
+
+  it('rus tilidagi Telegram uchun javob ruscha', () => {
+    const env = createEnv();
+    env.shareContact(111, '+998900000001');
+    const reply = press(env, 111, '🎟 Мои билеты', 'ru')[0];
+    expect(reply.text).toContain('У вас <b>3 бил.</b> — ✅ все активны');
+    expect(reply.reply_markup.keyboard[0][0].text).toBe('🎟 Мои билеты');
+  });
+
+  it('Ilovani ochish — Telegram ichida ochiladigan web_app tugmasi', () => {
+    const env = createEnv();
+    env.shareContact(111, '+998900000001');
+    const btn = press(env, 111, '📱 Ilovani ochish')[0].reply_markup.inline_keyboard[0][0];
+    expect(btn.web_app.url).toBe('https://zikrulloabdumalikov-debug.github.io/epco-shou/');
+  });
+
+  it('raqami ulanmagan foydalanuvchiga avval kontakt so\'raladi', () => {
+    const env = createEnv();
+    const reply = press(env, 777, '🎟 Biletlarim')[0];
+    expect(reply.reply_markup.keyboard[0][0].request_contact).toBe(true);
+  });
+
+  it('bazada yo\'q mijozga anketa uchun ilova tugmasi', () => {
+    const env = createEnv();
+    env.shareContact(555, '+998999999999');
+    const reply = press(env, 555, '🎟 Biletlarim')[0];
+    expect(reply.text).toContain("ro'yxatida yo'qsiz");
+    expect(reply.reply_markup.inline_keyboard[0][0].web_app).toBeDefined();
+  });
+
+  it('setTelegramWebhook bot menyusi va buyruqlarini ham o\'rnatadi', () => {
+    const env = createEnv();
+    env.ctx.setTelegramWebhook();
+    const menu = env.sent.find((m) => m.url.endsWith('/setChatMenuButton'))!;
+    expect(menu.payload.menu_button.web_app.url).toContain('github.io/epco-shou');
+    expect(env.sent.filter((m) => m.url.endsWith('/setMyCommands'))).toHaveLength(2);
+  });
+});
