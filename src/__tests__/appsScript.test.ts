@@ -783,6 +783,20 @@ describe('Apps Script: botdagi tezkor tugmalar', () => {
     expect(reply.reply_markup.keyboard[0][0].request_contact).toBe(true);
   });
 
+  it('/reset faqat o\'z raqamini uzadi va kontakt tugmasini qayta chiqaradi', () => {
+    const env = createEnv();
+    env.shareContact(111, '+998900000001');
+    env.shareContact(333, '+998930000003');
+    const reply = press(env, 111, '/reset')[0];
+    expect(reply.reply_markup.keyboard[0][0].request_contact).toBe(true);
+    expect(env.props.has('tg_phone_111')).toBe(false);
+    expect(env.props.has('tg_chat_998900000001')).toBe(false);
+    expect(env.props.has('tg_phone_333')).toBe(true);
+    expect(press(env, 111, '/start')[0].reply_markup.keyboard[0][0].request_contact).toBe(true);
+    env.shareContact(111, '+998900000001');
+    expect(press(env, 111, '🎟 Biletlarim')[0].text).toContain('3 ta bilet');
+  });
+
   it('bazada yo\'q mijozga anketa uchun ilova tugmasi', () => {
     const env = createEnv();
     env.shareContact(555, '+998999999999');

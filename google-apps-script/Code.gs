@@ -1994,7 +1994,17 @@ function handleTelegramWebhook(update) {
 
   var linkedPhone = msg.from ? PropertiesService.getScriptProperties().getProperty("tg_phone_" + msg.from.id) : null;
 
-  // 2. /start
+  // 2. /reset — o'z raqamini botdan uzish (qayta ulanishni ko'rsatish / video qo'llanma uchun).
+  // Faqat yozgan odamning o'z bog'lanishi o'chiriladi.
+  if (text.split(/[\s@]/)[0].toLowerCase() === "/reset") {
+    if (linkedPhone) unlinkTelegramPhone(String(msg.from.id), String(chatId), linkedPhone);
+    sendTelegramContactButton(chatId, botT(lang,
+      "🔄 Raqamingiz botdan uzildi.\n\nQayta ulanish uchun pastdagi «📲 Kontaktni ulashish» tugmasini bosing:",
+      "🔄 Ваш номер отвязан от бота.\n\nЧтобы снова подключиться, нажмите кнопку «📲 Kontaktni ulashish» внизу:"));
+    return;
+  }
+
+  // 3. /start
   if (text.indexOf("/start") === 0) {
     if (linkedPhone) {
       sendBot(chatId, botT(lang,
@@ -2009,7 +2019,7 @@ function handleTelegramWebhook(update) {
     return;
   }
 
-  // 3. Tezkor tugmalar va buyruqlar
+  // 4. Tezkor tugmalar va buyruqlar
   var action = detectBotAction(text);
   if (!linkedPhone) {
     if (action || text) {
@@ -2216,6 +2226,15 @@ function linkTelegramPhone(userId, chatId, phoneKey) {
 
   props.setProperty("tg_chat_" + phoneKey, chatId);
   props.setProperty("tg_phone_" + userId, phoneKey);
+}
+
+/** Bog'lanishni uzish (/reset): raqam boshqa chatga ulangan bo'lsa, o'sha bog'lanishga tegilmaydi */
+function unlinkTelegramPhone(userId, chatId, phoneKey) {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty("tg_phone_" + userId);
+  if (props.getProperty("tg_chat_" + phoneKey) === chatId) {
+    props.deleteProperty("tg_chat_" + phoneKey);
+  }
 }
 
 function sendTelegramMessage(chatId, text) {
