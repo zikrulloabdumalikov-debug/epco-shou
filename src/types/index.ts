@@ -94,6 +94,7 @@ export type BootstrapData =
       leaderboard: { republic: LeaderboardEntry[]; region: LeaderboardEntry[] };
       tickets: Ticket[];
       winners: PastWinner[];
+      show?: ShowMonth[];
     }
   | {
       registered: false;
@@ -189,6 +190,24 @@ export interface PastWinner {
   ticketsHeld: number;
   videoUrl?: string;
   imageUrl?: string;
+  ticketCode?: string;
+}
+
+/** Super o'yin ishtirokchisi (lototron natijasi, admin qo'lda kiritadi) */
+export interface ShowParticipant {
+  n: number;
+  name: string;
+  region: string;
+  code: string;
+  count: number;
+  isMe?: boolean;
+}
+
+export interface ShowMonth {
+  month: string; // "2026-10"
+  monthName: string; // "Oktyabr 2026"
+  tickets: number;
+  participants: ShowParticipant[];
 }
 
 export interface NotificationItem {

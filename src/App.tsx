@@ -10,7 +10,7 @@ import { dataService } from './services/dataService';
 import { apiService } from './services/apiService';
 import { isDemoMode } from './services/demoData';
 import { isSoundEnabled, setSoundEnabled, triggerHaptic } from './utils/audio';
-import { useL, useLanguage, setLanguage } from './i18n/lang';
+import { useL, useLanguage, setLanguage, localizeMonth } from './i18n/lang';
 import epcoLogo from './assets/brand/epco-logo.png';
 
 import { HomeHero } from './components/HomeHero';
@@ -310,6 +310,8 @@ export default function App() {
   }
 
   const { user, stats, config, tickets, winners } = boot;
+  const show = boot.show || [];
+  const myShow = show.length ? show[0].participants.find((p) => p.isMe) : undefined;
   const leaderboardEntries = activeScope === 'region' ? boot.leaderboard.region : boot.leaderboard.republic;
   const timeLeft = stats.isLastDayOfMonth
     ? L(`oy tugashiga ${stats.hoursRemainingInMonth} soat`, `до конца месяца ${stats.hoursRemainingInMonth} ч`)
@@ -363,6 +365,23 @@ export default function App() {
               {quickAction(<Trophy size={20} />, L('Reyting', 'Рейтинг'), () => goTo('leaderboard'))}
               {quickAction(<Medal size={20} />, L('G\'oliblar', 'Победители'), () => setIsWinnersOpen(true))}
             </div>
+
+            {myShow && (
+              <button
+                onClick={() => setIsWinnersOpen(true)}
+                className="w-full rounded-3xl bg-gradient-to-br from-[#0064FF] to-[#00308a] p-4 text-left text-white flex items-center gap-3 active:scale-[0.99] transition-transform"
+              >
+                <span className="text-3xl">🎉</span>
+                <span className="flex-1">
+                  <span className="block font-bold">
+                    {L(`Siz ${show[0].monthName} Super o'yini ishtirokchisisiz!`, `Вы участник супер-игры ${localizeMonth(show[0].monthName, language)}!`)}
+                  </span>
+                  <span className="block text-sm text-white/80">
+                    {L(`${myShow.count} ta chipta · kod ${myShow.code}`, `${myShow.count} бил. · код ${myShow.code}`)}
+                  </span>
+                </span>
+              </button>
+            )}
 
             <PrizeCard stats={stats} config={config} />
 
@@ -421,7 +440,7 @@ export default function App() {
 
       <TicketsModal isOpen={isTicketsOpen} tickets={tickets} stats={stats} onClose={() => setIsTicketsOpen(false)} />
       <RulesAndTrustModal isOpen={isRulesOpen} config={config} onClose={() => setIsRulesOpen(false)} />
-      <WinnersWallModal isOpen={isWinnersOpen} winners={winners} grandPrize={config.grandPrize} onClose={() => setIsWinnersOpen(false)} />
+      <WinnersWallModal isOpen={isWinnersOpen} winners={winners} show={show} grandPrize={config.grandPrize} onClose={() => setIsWinnersOpen(false)} />
       <ProfileModal
         isOpen={isProfileOpen}
         user={user}

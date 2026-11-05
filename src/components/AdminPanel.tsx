@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Search, Send, Trash2, Phone, CalendarClock, Dices, Archive, MonitorPlay, UserPlus } from 'lucide-react';
+import { Search, Send, Trash2, Phone, CalendarClock, Archive, UserPlus, ClipboardPaste, Medal } from 'lucide-react';
 import { PastWinner } from '../types';
 import { apiService } from '../services/apiService';
 import { playSuccessFanfare } from '../utils/audio';
 import { money } from '../i18n/lang';
-import { DrawShow, DrawWinner } from './DrawShow';
 
 // ── Server javoblari ─────────────────────────────────────────────────────
 
@@ -53,8 +52,20 @@ interface Overview {
   broadcasts?: Broadcast[];
   templates?: Template[];
   team?: TeamMember[];
-  draw?: DrawWinner[];
+  promoMonths?: { key: string; name: string }[];
+  showMonth?: string;
+  show?: ShowParticipant[];
   agents?: string[];
+}
+
+interface ShowParticipant {
+  n: number;
+  code: string;
+  name: string;
+  phone: string;
+  region: string;
+  agent: string;
+  count: number;
 }
 
 interface ClientCard {
@@ -116,6 +127,27 @@ function compressImage(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Jadvaldan nusxa olingan qatorlar (tab bilan ajratilgan):
+ * Hudud · Agent · Mijoz · Ishtirokchi ismi · Telefon · Chipta kodi · Chipta soni
+ */
+function parsePasted(raw: string) {
+  const rows: Omit<ShowParticipant, 'n'>[] = [];
+  const errors: number[] = [];
+  raw.split(/\r?\n/).forEach((line, i) => {
+    if (!line.trim()) return;
+    const c = line.split('\t').map((x) => x.trim());
+    if (c.length < 7) {
+      errors.push(i + 1);
+      return;
+    }
+    const count = parseInt(c[6], 10);
+    if (!count || !c[5]) return; // sarlavha qatori
+    rows.push({ region: c[0], agent: c[1], name: c[3] || c[2], phone: c[4], code: c[5].toUpperCase(), count });
+  });
+  return { rows, errors };
 }
 
 const Stat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
@@ -188,12 +220,9 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
   const [sendAt, setSendAt] = useState('');
 
   // ── Boshqalar ──
-  const [winner, setWinner] = useState({ month: currentMonth, phone: '', name: '', region: '', prize: '', videoUrl: '', notify: true });
   const [settings, setSettings] = useState({ grandPrize: '', prizesText: '', prizesTextRu: '', liveUrl: '' });
   const [member, setMember] = useState({ phone: '', name: '', role: 'agent' as 'admin' | 'agent', agentCode: '' });
   const [stats, setStats] = useState<{ regions: StatRow[]; agents: StatRow[] } | null>(null);
-  const [drawNotify, setDrawNotify] = useState(true);
-  const [showDraw, setShowDraw] = useState(false);
 
   useEffect(() => {
     if (data?.settings) setSettings(data.settings);
@@ -207,6 +236,103 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
       });
     }
   }, [section, stats]);
+
+  // ── Super o'yin va g'oliblar ──
+  const [showMonth, setShowMonth] = useState('');
+  const [show, setShow] = useState<ShowParticipant[]>([]);
+  const [showNotify, setShowNotify] = useState(true);
+  const [paste, setPaste] = useState('');
+  const [one, setOne] = useState({ name: '', phone: '', region: '', code: '', count: 1 });
+  const [winnerPick, setWinnerPick] = useState('');
+  const [winnerPrize, setWinnerPrize] = useState('');
+  const [winnerVideo, setWinnerVideo] = useState('');
+  const [winnerNotify, setWinnerNotify] = useState(true);
+
+  useEffect(() => {
+    if (data?.showMonth && !showMonth) {
+      setShowMonth(data.showMonth);
+      setShow(data.show || []);
+    }
+  }, [data, showMonth]);
+
+  const monthNameOf = (key: string) => data?.promoMonths?.find((m) => m.key === key)?.name || currentMonth;
+  const pasted = parsePasted(paste);
+  const picked = show.find((p) => String(p.n) === winnerPick);
+  const prizeOptions = [data?.settings?.grandPrize || 'Chevrolet DAMAS', 'Televizor', 'Muzlatgich', 'Kir yuvish mashinasi', 'Pul mukofoti'];
+
+  const changeShowMonth = async (key: string) => {
+    setShowMonth(key);
+    setShow([]);
+    setWinnerPick('');
+    const d = await run<{ participants: ShowParticipant[] }>('show.get', { month: key }, null);
+    if (d) setShow(d.participants);
+  };
+
+  const saveShow = (list: Omit<ShowParticipant, 'n'>[], success: string, onDone?: () => void) =>
+    run<{ participants: ShowParticipant[]; notified: number }>(
+      'show.save',
+      { month: showMonth, notify: showNotify, participants: list },
+      null,
+      (r) => {
+        setShow(r.participants);
+        setNotice(`${success}. Ro'yxatda: ${r.participants.length} nafar.` + (r.notified ? ` Tabrik yuborildi: ${r.notified} kishiga.` : ''));
+        playSuccessFanfare();
+        onDone?.();
+      }
+    );
+
+  const addParticipants = (rows: Omit<ShowParticipant, 'n'>[], onDone: () => void) => {
+    const codes = new Set(show.map((p) => p.code.toUpperCase()));
+    const fresh = rows.filter((r) => !codes.has(r.code.trim().toUpperCase()));
+    if (!fresh.length) {
+      setError('Bu chipta kodlari ro\'yxatda allaqachon bor');
+      return;
+    }
+    saveShow([...show, ...fresh], `${fresh.length} ta qo'shildi`, onDone);
+  };
+
+  const addWinner = () => {
+    if (!picked) return;
+    run<{ winners: PastWinner[]; notified: boolean }>(
+      'winner.add',
+      {
+        winner: {
+          month: monthNameOf(showMonth),
+          phone: picked.phone,
+          name: picked.name,
+          region: picked.region,
+          ticketCode: picked.code,
+          prize: winnerPrize,
+          videoUrl: winnerVideo,
+          notify: winnerNotify,
+        },
+      },
+      `${picked.name} — ${winnerPrize}`,
+      (d) => {
+        patch({ winners: d.winners });
+        setWinnerPick('');
+        setWinnerVideo('');
+        if (winnerNotify && !d.notified) setNotice('G\'olib qayd etildi, lekin tabrik yuborilmadi: raqam botga ulanmagan');
+      }
+    );
+  };
+
+  const monthPicker = (
+    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+      {(data?.promoMonths || []).map((m) => (
+        <button
+          key={m.key}
+          disabled={busy}
+          onClick={() => m.key !== showMonth && changeShowMonth(m.key)}
+          className={`shrink-0 rounded-full border px-3.5 py-2 text-sm font-semibold ${
+            m.key === showMonth ? 'bg-ink text-white border-ink' : 'bg-surface text-muted border-line'
+          }`}
+        >
+          {m.name}
+        </button>
+      ))}
+    </div>
+  );
 
   const searchClients = async () => {
     const d = await run<{ clients: ClientCard[] }>('client.search', { query }, null);
@@ -269,7 +395,7 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
         ['overview', 'Umumiy'],
         ['search', 'Qidiruv'],
         ['broadcast', 'Xabar'],
-        ['draw', 'Tanlov'],
+        ['draw', "Super o'yin"],
         ['winners', 'G\'oliblar'],
         ['stats', 'Statistika'],
         ['team', 'Jamoa'],
@@ -574,63 +700,91 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
         </div>
       )}
 
-      {/* ── TANLOV ── */}
+      {/* ── SUPER O'YIN (lototron natijasi qo'lda kiritiladi) ── */}
       {data && isAdmin && section === 'draw' && (
         <div className="space-y-4">
+          {monthPicker}
+
           <div className={card}>
-            <h3 className="font-bold">{data.monthName} — jonli shou tanlovi</h3>
+            <h3 className="font-bold">Jadvaldan nusxa olib qo'yish</h3>
             <p className="text-sm text-muted leading-relaxed">
-              Barcha faol (qarzsiz) biletlar orasidan 30 tasi tasodifiy tanlanadi. Natija "Tanlov" varag'iga yoziladi va oyda bir marta o'tkaziladi.
+              Excel/Sheets'dagi qatorlarni belgilab nusxa oling (Ctrl+C) va shu yerga qo'ying. Ustunlar tartibi: Hudud · Agent · Mijoz · Ishtirokchi ismi · Telefon ·
+              Chipta kodi · Chipta soni. Sarlavha qatori o'zi tashlab ketiladi.
             </p>
-            {!data.draw?.length ? (
-              <>
-                <label className="flex items-center gap-2 text-sm text-muted">
-                  <input type="checkbox" checked={drawNotify} onChange={(e) => setDrawNotify(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
-                  Tanlanganlarga botda tabrik yuborish
-                </label>
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    confirm('Tanlov o\'tkazilsinmi? Bu oy uchun natija qayd etiladi.') &&
-                    run<{ winners: DrawWinner[]; poolSize: number; notified: number }>(
-                      'draw.run',
-                      { options: { count: 30, notify: drawNotify } },
-                      null,
-                      (r) => {
-                        patch({ draw: r.winners });
-                        setNotice(`Tanlov o'tkazildi: ${r.poolSize} ta faol biletdan ${r.winners.length} tasi tanlandi. Xabar yuborildi: ${r.notified} kishiga.`);
-                        setShowDraw(true);
-                      }
-                    )
-                  }
-                  className="btn btn-primary w-full"
-                >
-                  <Dices size={18} /> Tanlovni o'tkazish
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setShowDraw(true)} className="btn btn-primary w-full">
-                <MonitorPlay size={18} /> Natijani katta ekranda ko'rsatish
-              </button>
+            <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={4} placeholder="Shu yerga qo'ying..." className="field font-mono text-xs" />
+            {paste.trim() && (
+              <div className={`text-sm ${pasted.errors.length ? 'text-bad' : 'text-muted'}`}>
+                {pasted.rows.length} ta ishtirokchi, {pasted.rows.reduce((a, r) => a + r.count, 0)} ta chipta topildi
+                {pasted.errors.length > 0 && ` · ${pasted.errors.join(', ')}-qatorlarda ustunlar yetmaydi`}
+              </div>
             )}
+            <button disabled={busy || !pasted.rows.length} onClick={() => addParticipants(pasted.rows, () => setPaste(''))} className="btn btn-primary w-full">
+              <ClipboardPaste size={18} /> Ro'yxatga qo'shish
+            </button>
           </div>
 
-          {!!data.draw?.length && (
-            <div className="card divide-y divide-line">
-              {data.draw.map((w) => (
-                <div key={w.n} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                  <span className="w-7 text-muted tabular-nums">{w.n}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="font-semibold block truncate">{w.name}</span>
-                    <span className="text-xs text-muted">
-                      {w.region} · {w.phone}
-                    </span>
-                  </span>
-                  <span className="font-mono text-xs">{w.ticket}</span>
-                </div>
-              ))}
+          <div className={card}>
+            <h3 className="font-bold">Bittadan qo'shish</h3>
+            <input value={one.name} onChange={(e) => setOne({ ...one, name: e.target.value })} placeholder="Ism (masalan: Abdurauf aka)" className="field" />
+            <input value={one.phone} onChange={(e) => setOne({ ...one, phone: e.target.value })} placeholder="Telefon (bazada bo'lsa hudud/agent o'zi to'ladi)" className="field" />
+            <input value={one.region} onChange={(e) => setOne({ ...one, region: e.target.value })} placeholder="Hudud (ixtiyoriy)" className="field" />
+            <div className="grid grid-cols-[1fr_96px] gap-2">
+              <input value={one.code} onChange={(e) => setOne({ ...one, code: e.target.value })} placeholder="Chipta kodi" className="field font-mono uppercase" />
+              <input
+                type="number"
+                min={1}
+                value={one.count}
+                onChange={(e) => setOne({ ...one, count: Math.max(1, Number(e.target.value) || 1) })}
+                aria-label="Chipta soni"
+                className="field text-center"
+              />
             </div>
-          )}
+            <button
+              disabled={busy || !one.name.trim() || !one.code.trim()}
+              onClick={() => addParticipants([{ ...one, agent: '' }], () => setOne({ name: '', phone: '', region: '', code: '', count: 1 }))}
+              className="btn btn-soft w-full"
+            >
+              <UserPlus size={18} /> Qo'shish
+            </button>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-muted px-1">
+            <input type="checkbox" checked={showNotify} onChange={(e) => setShowNotify(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
+            Yangi qo'shilganlarga botda tabrik yuborish
+          </label>
+
+          <div className="card divide-y divide-line">
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+              <h3 className="font-bold">{monthNameOf(showMonth)}</h3>
+              <span className="text-sm text-muted">
+                {show.length} nafar · {show.reduce((a, p) => a + p.count, 0)} ta chipta
+              </span>
+            </div>
+            {!show.length && <p className="px-4 py-3 text-sm text-muted">Hozircha ro'yxat bo'sh. Lototron natijasini yuqoridan kiriting.</p>}
+            {show.map((p) => (
+              <div key={`${p.n}-${p.code}`} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <span className="w-6 text-muted tabular-nums">{p.n}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="font-semibold block truncate">{p.name}</span>
+                  <span className="text-xs text-muted block truncate">
+                    {p.region || '—'} · {p.agent || '—'} · {p.phone || 'telefonsiz'}
+                  </span>
+                </span>
+                <span className="text-right">
+                  <span className="font-mono text-xs block">{p.code}</span>
+                  <span className="text-xs text-muted">{p.count} ta</span>
+                </span>
+                <button
+                  onClick={() => confirm(`${p.name} (${p.code}) ro'yxatdan o'chirilsinmi?`) && saveShow(show.filter((x) => x !== p), 'O\'chirildi')}
+                  disabled={busy}
+                  className="icon-btn shrink-0 text-bad"
+                  aria-label="O'chirish"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
 
           <div className={card}>
             <h3 className="font-bold">Oyni yopish</h3>
@@ -646,50 +800,71 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
               <Archive size={18} /> Oyni arxivlash
             </button>
           </div>
-
-          {showDraw && !!data.draw?.length && <DrawShow monthName={data.monthName} winners={data.draw} onClose={() => setShowDraw(false)} />}
         </div>
       )}
 
       {/* ── G'OLIBLAR ── */}
       {data && isAdmin && section === 'winners' && (
         <div className="space-y-4">
+          {monthPicker}
+
           <div className={card}>
-            <h3 className="font-bold">G'olib qo'shish</h3>
-            <input value={winner.month} onChange={(e) => setWinner({ ...winner, month: e.target.value })} placeholder="Oy (masalan: Oktyabr 2026)" className="field" />
-            <input value={winner.phone} onChange={(e) => setWinner({ ...winner, phone: e.target.value })} placeholder="Telefon (bazada bo'lsa ism avtomatik)" className="field" />
-            <input value={winner.name} onChange={(e) => setWinner({ ...winner, name: e.target.value })} placeholder="Ism (telefon bo'lmasa)" className="field" />
-            <input value={winner.region} onChange={(e) => setWinner({ ...winner, region: e.target.value })} placeholder="Viloyat (ixtiyoriy)" className="field" />
-            <input value={winner.prize} onChange={(e) => setWinner({ ...winner, prize: e.target.value })} placeholder="Sovg'a (masalan: Chevrolet DAMAS)" className="field" />
-            <input value={winner.videoUrl} onChange={(e) => setWinner({ ...winner, videoUrl: e.target.value })} placeholder="YouTube havola (ixtiyoriy)" className="field" />
+            <h3 className="font-bold">G'olibni belgilash</h3>
+            {!show.length ? (
+              <p className="text-sm text-muted">Avval "Super o'yin" bo'limida {monthNameOf(showMonth)} ishtirokchilarini kiriting.</p>
+            ) : (
+              <select
+                value={winnerPick}
+                onChange={(e) => setWinnerPick(e.target.value)}
+                className="field"
+                aria-label="Ishtirokchi"
+              >
+                <option value="">Ishtirokchini tanlang...</option>
+                {show.map((p) => (
+                  <option key={`${p.n}-${p.code}`} value={String(p.n)}>
+                    {p.n}. {p.name} · {p.code} · {p.region}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {prizeOptions.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setWinnerPrize(p)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${
+                    winnerPrize === p ? 'bg-brand text-white border-brand' : 'bg-surface text-muted border-line'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <input value={winnerPrize} onChange={(e) => setWinnerPrize(e.target.value)} placeholder="Sovg'a (yoki yuqoridan tanlang)" className="field" />
+            <input value={winnerVideo} onChange={(e) => setWinnerVideo(e.target.value)} placeholder="YouTube havola (ixtiyoriy)" className="field" />
             <label className="flex items-center gap-2 text-sm text-muted">
-              <input type="checkbox" checked={winner.notify} onChange={(e) => setWinner({ ...winner, notify: e.target.checked })} className="accent-[var(--color-brand)] w-4 h-4" />
+              <input type="checkbox" checked={winnerNotify} onChange={(e) => setWinnerNotify(e.target.checked)} className="accent-[var(--color-brand)] w-4 h-4" />
               G'olibga botda tabrik xabari yuborish
             </label>
-            <button
-              disabled={busy || !winner.prize.trim() || (!winner.phone.trim() && !winner.name.trim())}
-              onClick={() =>
-                run<{ winners: PastWinner[]; notified: boolean }>('winner.add', { winner }, 'G\'olib qo\'shildi', (d) => {
-                  patch({ winners: d.winners });
-                  setWinner({ ...winner, phone: '', name: '', region: '', prize: '', videoUrl: '' });
-                  if (winner.notify && !d.notified) setNotice('G\'olib qo\'shildi, lekin tabrik yuborilmadi: raqam botga ulanmagan');
-                })
-              }
-              className="btn btn-primary w-full"
-            >
-              Qo'shish
+            <button disabled={busy || !picked || !winnerPrize.trim()} onClick={addWinner} className="btn btn-primary w-full">
+              <Medal size={18} /> G'olib deb belgilash
             </button>
           </div>
 
           <div className={card}>
             <h3 className="font-bold">G'oliblar · {data.winners?.length || 0}</h3>
+            <p className="text-xs text-muted -mt-1">Bu ro'yxat ilovadagi «G'oliblar» bo'limida barcha mijozlarga ko'rinadi.</p>
             {!data.winners?.length && <p className="text-sm text-muted">Hozircha yo'q</p>}
             {data.winners?.map((w) => (
-              <div key={w.id} className="flex items-start justify-between gap-2 border-t border-line pt-2 first:border-0 first:pt-0">
+              <div key={w.id} className="flex items-start justify-between gap-2 border-t border-line pt-2">
                 <div className="min-w-0 text-sm">
-                  <div className="font-semibold">{w.winnerName}</div>
+                  <div className="font-semibold">
+                    {w.winnerName} — {w.prize}
+                  </div>
                   <div className="text-xs text-muted">
-                    {w.month} · {w.region} · {w.prize}
+                    {w.month} · {w.region}
+                    {w.ticketCode && <span className="font-mono"> · {w.ticketCode}</span>}
                   </div>
                   {w.videoUrl && (
                     <a href={w.videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-bad underline">

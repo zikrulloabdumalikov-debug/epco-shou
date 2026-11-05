@@ -682,7 +682,8 @@ function handleBootstrap(phoneKey) {
       region: buildLeaderboard(dataObj, phoneKey, master.region, props)
     },
     tickets: buildTickets(master),
-    winners: handleGetWinners().winners
+    winners: readWinners(),
+    show: readShowPublic(phoneKey)
   };
 }
 
@@ -744,8 +745,8 @@ function handleGetTickets(phoneKey) {
   return { tickets: master ? buildTickets(master) : [] };
 }
 
-function handleGetWinners() {
-  return { winners: readWinners() };
+function handleGetWinners(myPhoneKey) {
+  return { winners: readWinners(), show: readShowPublic(myPhoneKey) };
 }
 
 
@@ -845,7 +846,7 @@ function handleSubmitLead(phoneKey, lead) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 var WINNERS_SHEET = "Goliblar";
-var WINNER_HEADERS = ["ID", "Oy", "Telefon", "Ism", "Hudud", "Sovg'a", "Video (YouTube)", "Qo'shilgan"];
+var WINNER_HEADERS = ["ID", "Oy", "Telefon", "Ism", "Hudud", "Sovg'a", "Video (YouTube)", "Qo'shilgan", "Chipta kodi"];
 var BROADCAST_SHEET = "Xabarlar";
 var BROADCAST_HEADERS = ["ID", "Sana", "Admin", "Turi", "Matn", "Kimga", "Jami", "Yuborildi", "Xato", "Holat", "Sozlama", "Qabul qiluvchilar"];
 var BC_COL = { TOTAL: 7, SENT: 8, FAILED: 9, STATUS: 10, PAYLOAD: 11, RECIPIENTS: 12 };
@@ -902,8 +903,8 @@ function handleAdminAction(action, data, phoneKey, staff) {
     case "admin.template.delete": return adminTemplateDelete(data.id);
     case "admin.team.add": return adminTeamAdd(data.member || {});
     case "admin.team.remove": return adminTeamRemove(data.phone);
-    case "admin.draw.run": return adminRunDraw(data.options || {});
-    case "admin.draw.get": return { month: getCurrentMonth(), winners: readDraw(getCurrentMonth()) };
+    case "admin.show.get": return { month: String(data.month || ""), participants: readShow(String(data.month || "")) };
+    case "admin.show.save": return adminShowSave(data);
     case "admin.month.archive": return adminArchiveMonth();
     default: throw new Error("Noma'lum admin amali: " + action);
   }
@@ -965,7 +966,9 @@ function adminOverview(staff) {
   result.broadcasts = listBroadcasts(10);
   result.templates = readTemplates();
   result.team = readTeam();
-  result.draw = readDraw(getCurrentMonth());
+  result.promoMonths = promoMonths();
+  result.showMonth = defaultShowMonth();
+  result.show = readShow(result.showMonth);
   result.agents = Object.keys(adminStats(staff).agents.reduce(function(acc, a) { if (a.key !== "—") acc[a.key] = true; return acc; }, {})).sort();
   return result;
 }
@@ -1003,7 +1006,8 @@ function readWinners() {
         region: String(r[4]),
         prize: String(r[5]),
         ticketsHeld: 0,
-        videoUrl: String(r[6] || "")
+        videoUrl: String(r[6] || ""),
+        ticketCode: String(r[8] || "")
       };
     })
     .reverse();
@@ -1017,6 +1021,7 @@ function adminAddWinner(w) {
   var prize = String(w.prize || "").trim();
   var month = String(w.month || "").trim() || getMonthTiming().monthName;
   var video = String(w.videoUrl || "").trim();
+  var code = String(w.ticketCode || "").trim().toUpperCase();
 
   if (!name) throw new Error("G'olib ismini yoki bazadagi telefon raqamini kiriting");
   if (!prize) throw new Error("Sovg'ani kiriting");
@@ -1025,7 +1030,8 @@ function adminAddWinner(w) {
   var sheet = getOrCreateSheet(WINNERS_SHEET, WINNER_HEADERS, ["A", "C"]);
   var id = uniqueId("W");
   sheet.appendRow([id, sheetText(month, 40), phoneKey ? formatPhoneUz(phoneKey) : "", sheetText(name, 100),
-    sheetText(region, 60), sheetText(prize, 120), sheetText(video, 200), new Date()]);
+    sheetText(region, 60), sheetText(prize, 120), sheetText(video, 200), new Date(), sheetText(code, 30)]);
+  if (!sheet.getRange(1, 9).getValue()) sheet.getRange(1, 9).setValue("Chipta kodi"); // eski varaq
 
   var notified = false;
   if (w.notify && phoneKey) {
@@ -1034,6 +1040,7 @@ function adminAddWinner(w) {
       notified = telegramApi("sendMessage", {
         chat_id: chatId,
         text: "🎉 Tabriklaymiz, " + name + "!\n\nSiz EPCO Katta Rozig'ish Shou'ning " + month + " g'olibisiz.\n🎁 Sovg'a: " + prize +
+          (code ? "\n🎟 Chipta: " + code : "") +
           (video ? "\n\n▶️ Video: " + video : "") + "\n\nSovg'ani olish bo'yicha menejerimiz siz bilan bog'lanadi."
       }) !== null;
     }
@@ -1398,10 +1405,9 @@ function handlePollAnswer(answer) {
 var TEAM_SHEET = "Jamoa";
 var TEAM_HEADERS = ["Telefon", "Ism", "Rol", "Agent kodi", "Qo'shilgan"];
 var DRAW_SHEET = "Tanlov";
-var DRAW_HEADERS = ["Oy", "№", "Bilet", "Ism", "Telefon", "Hudud", "Agent", "Tanlangan vaqt"];
+var DRAW_HEADERS = ["Oy", "№", "Chipta kodi", "Ism", "Telefon", "Hudud", "Agent", "Qo'shilgan", "Chipta soni"];
 var TEMPLATES_KEY = "tpl_list";
 var TEAM_CACHE_KEY = "team_v1";
-var DRAW_SIZE = 30;
 // Agent faqat shu amallarni bajara oladi va faqat o'z mijozlarini ko'radi
 var AGENT_ACTIONS = ["admin.overview", "admin.client.search", "admin.stats"];
 
@@ -1599,82 +1605,139 @@ function adminTemplateDelete(id) {
   return { templates: list };
 }
 
-// ── Oylik tanlov (jonli shouga 30 ta bilet) ──────────────────────────────
+// ── Super o'yin ishtirokchilari (lototron natijasi qo'lda kiritiladi) ─────
 
-/** Kriptografik tasodifiy butun son [0, max) — Utilities.getUuid SecureRandom'ga asoslangan */
-function secureRandomInt(max) {
-  var hex = Utilities.getUuid().replace(/-/g, "").slice(0, 12);
-  return parseInt(hex, 16) % max;
+/** Aksiya oylari: [{ key: "2026-10", name: "Oktyabr 2026" }, ...] */
+function promoMonths() {
+  var config = getConfig();
+  var s = String(config.PROMO_START).split("-").map(Number);
+  var e = String(config.PROMO_END).split("-").map(Number);
+  var list = [];
+  for (var y = s[0], m = s[1]; (y < e[0] || (y === e[0] && m <= e[1])) && list.length < 24; m === 12 ? (y++, m = 1) : m++) {
+    list.push({ key: y + "-" + ("0" + m).slice(-2), name: MONTHS_UZ[m - 1] + " " + y });
+  }
+  return list;
 }
 
-function readDraw(monthKey) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DRAW_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, DRAW_HEADERS.length).getValues()
-    .filter(function(r) { return String(r[0]) === monthKey; })
-    .map(function(r) {
-      return { n: Number(r[1]), ticket: String(r[2]), name: String(r[3]), phone: String(r[4]), region: String(r[5]), agent: String(r[6]) };
-    });
+function monthNameOf(monthKey) {
+  var p = String(monthKey).split("-").map(Number);
+  return p[1] >= 1 && p[1] <= 12 ? MONTHS_UZ[p[1] - 1] + " " + p[0] : String(monthKey);
 }
 
 /**
- * Barcha FAOL biletlar orasidan tasodifiy count tasi tanlanadi (bir mijoz bir necha marta tushishi mumkin —
- * har bilet teng imkoniyatga ega). Natija "Tanlov" varag'iga yoziladi, bir oyda bir marta.
+ * Admin panel ochilganda tanlanadigan oy: oyning birinchi yarmida — o'tgan oy
+ * (shou odatda oy tugagach o'tkaziladi), aks holda joriy oy.
  */
-function adminRunDraw(options) {
-  var monthKey = getCurrentMonth();
-  var existing = readDraw(monthKey);
-  if (existing.length && !options.force) {
-    throw new Error("Bu oy uchun tanlov allaqachon o'tkazilgan");
-  }
+function defaultShowMonth() {
+  var months = promoMonths().map(function(m) { return m.key; });
+  var current = getCurrentMonth();
+  var day = Number(Utilities.formatDate(new Date(), DEFAULTS.TIMEZONE, "d"));
+  var idx = months.indexOf(current);
+  if (idx > 0 && day <= 15) return months[idx - 1];
+  if (idx === -1 && months.length && current > months[months.length - 1]) return months[months.length - 1];
+  return current;
+}
 
-  var count = Math.max(1, Math.min(200, Number(options.count) || DRAW_SIZE));
-  var yymm = currentYymm();
-  var pool = [];
-  loadAndAggregateMasters().clientList.forEach(function(c) {
-    if (!c.isDebtCleared) return;
-    for (var i = 1; i <= c.tickets; i++) pool.push({ ticket: ticketNumberFor(c.phoneKey, i, yymm), client: c });
+function readShow(monthKey) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DRAW_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, DRAW_HEADERS.length).getValues()
+    .filter(function(r) { return String(r[0]) === monthKey && String(r[3]).trim() !== ""; })
+    .map(function(r) {
+      return {
+        n: Number(r[1]) || 0,
+        code: String(r[2]),
+        name: String(r[3]),
+        phone: String(r[4]),
+        region: String(r[5]),
+        agent: String(r[6]),
+        count: Math.max(1, Number(r[8]) || 1)
+      };
+    })
+    .sort(function(a, b) { return a.n - b.n; });
+}
+
+/** Mijozlar ko'radigan ro'yxat: telefonlarsiz, eng so'nggi oy birinchi */
+function readShowPublic(myPhoneKey) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DRAW_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return promoMonths().reverse().map(function(m) {
+    var list = readShow(m.key);
+    return {
+      month: m.key,
+      monthName: m.name,
+      tickets: list.reduce(function(sum, p) { return sum + p.count; }, 0),
+      participants: list.map(function(p) {
+        return { n: p.n, name: p.name, region: p.region, code: p.code, count: p.count, isMe: Boolean(myPhoneKey) && normalizePhoneKey(p.phone) === myPhoneKey };
+      })
+    };
+  }).filter(function(m) { return m.participants.length > 0; });
+}
+
+/**
+ * Oy ishtirokchilari ro'yxatini to'liq almashtiradi. Telefon bazada bo'lsa, bo'sh hudud/agent
+ * bazadan olinadi. notify — faqat ro'yxatga YANGI qo'shilganlarga botda tabrik.
+ */
+function adminShowSave(data) {
+  var monthKey = String(data.month || "");
+  var allowed = promoMonths().map(function(m) { return m.key; });
+  if (allowed.indexOf(monthKey) === -1) throw new Error("Oy noto'g'ri tanlangan");
+  var input = data.participants || [];
+  if (input.length > 300) throw new Error("Ro'yxat juda uzun (ko'pi bilan 300 ta)");
+
+  var clients = loadAndAggregateMasters().clientsMap;
+  var list = input.map(function(p, idx) {
+    var phoneKey = normalizePhoneKey(p.phone);
+    var master = phoneKey ? clients[phoneKey] : null;
+    var name = String(p.name || (master && master.name) || "").trim();
+    var code = String(p.code || "").trim().toUpperCase();
+    if (!name) throw new Error((idx + 1) + "-qator: ism kiritilmagan");
+    if (!code) throw new Error((idx + 1) + "-qator (" + name + "): chipta kodi kiritilmagan");
+    return {
+      phoneKey: phoneKey,
+      code: code,
+      name: name,
+      phone: phoneKey ? formatPhoneUz(phoneKey) : String(p.phone || "").trim(),
+      region: String(p.region || (master && master.region) || "").trim(),
+      agent: String(p.agent || (master && master.agent) || "").trim(),
+      count: Math.max(1, Math.min(100, Math.floor(Number(p.count) || 1)))
+    };
   });
-  if (!pool.length) throw new Error("Faol bilet yo'q — tanlov o'tkazib bo'lmaydi");
 
-  // Fisher–Yates: faqat kerakli count ta element aralashtiriladi
-  var picks = Math.min(count, pool.length);
-  for (var k = 0; k < picks; k++) {
-    var j = k + secureRandomInt(pool.length - k);
-    var tmp = pool[k];
-    pool[k] = pool[j];
-    pool[j] = tmp;
-  }
-  var chosen = pool.slice(0, picks);
+  var before = {};
+  readShow(monthKey).forEach(function(p) { before[normalizePhoneKey(p.phone) || p.code] = true; });
 
-  var sheet = getOrCreateSheet(DRAW_SHEET, DRAW_HEADERS, ["A", "E"]);
-  if (existing.length && sheet.getLastRow() >= 2) {
+  var sheet = getOrCreateSheet(DRAW_SHEET, DRAW_HEADERS, ["A", "C", "E"]);
+  if (sheet.getLastRow() >= 2) {
     var months = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
     for (var d = months.length - 1; d >= 0; d--) {
       if (String(months[d][0]) === monthKey) sheet.deleteRow(d + 2);
     }
   }
   var now = new Date();
-  var rows = chosen.map(function(p, idx) {
-    return [monthKey, idx + 1, p.ticket, sheetText(p.client.name, 100), p.client.phoneFormatted, sheetText(p.client.region, 60), sheetText(p.client.agent, 40), now];
-  });
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DRAW_HEADERS.length).setValues(rows);
+  if (list.length) {
+    var rows = list.map(function(p, idx) {
+      return [monthKey, idx + 1, sheetText(p.code, 30), sheetText(p.name, 100), sheetText(p.phone, 30),
+        sheetText(p.region, 60), sheetText(p.agent, 40), now, p.count];
+    });
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DRAW_HEADERS.length).setValues(rows);
+  }
 
   var notified = 0;
-  if (options.notify) {
+  if (data.notify) {
     var props = PropertiesService.getScriptProperties();
     var seen = {};
-    chosen.forEach(function(p) {
-      var chatId = props.getProperty("tg_chat_" + p.client.phoneKey);
-      if (!chatId || seen[chatId]) return;
-      seen[chatId] = true;
-      var mine = chosen.filter(function(x) { return x.client.phoneKey === p.client.phoneKey; }).map(function(x) { return x.ticket; });
-      if (sendBot(chatId, "🎉 <b>Tabriklaymiz, " + escapeHtml(p.client.name) + "!</b>\n\nBiletingiz jonli shouga tanlandi:\n" +
-        mine.map(function(t) { return "🎟 <code>" + t + "</code>"; }).join("\n") + "\n\nShou vaqti haqida alohida xabar beramiz.")) notified++;
+    list.forEach(function(p) {
+      if (!p.phoneKey || before[p.phoneKey] || seen[p.phoneKey]) return;
+      seen[p.phoneKey] = true;
+      var chatId = props.getProperty("tg_chat_" + p.phoneKey);
+      if (chatId && sendBot(chatId, "🎉 <b>Tabriklaymiz, " + escapeHtml(p.name) + "!</b>\n\n" +
+        "Chiptangiz " + monthNameOf(monthKey) + " Super o'yiniga tushdi:\n🎟 <code>" + escapeHtml(p.code) + "</code> — " + p.count + " ta chipta\n\n" +
+        "Sovg'alar shu ishtirokchilar orasida o'ynaladi. Natijalarni ilovadagi «G'oliblar» bo'limida kuzatib boring.")) notified++;
     });
   }
 
-  return { month: monthKey, poolSize: pool.length, winners: readDraw(monthKey), notified: notified };
+  return { month: monthKey, participants: readShow(monthKey), notified: notified };
 }
 
 // ── Oyni arxivlash ────────────────────────────────────────────────────────

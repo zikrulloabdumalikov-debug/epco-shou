@@ -841,7 +841,7 @@ describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
     expect(botir).toMatchObject({ name: 'Botir Moyxona', paid: 1200, debt: 150, tickets: 1, isDebtCleared: false, linked: false });
 
     expect(env.api({ action: 'admin.broadcast.create', token: agent, broadcast: { kind: 'text', text: 'x' } }).error.code).toBe('FORBIDDEN');
-    expect(env.api({ action: 'admin.draw.run', token: agent }).error.code).toBe('FORBIDDEN');
+    expect(env.api({ action: 'admin.show.save', token: agent, month: '2026-10', participants: [] }).error.code).toBe('FORBIDDEN');
 
     // admin raqam bo'yicha ham topadi va ulanganligini ko'radi
     const found = env.api({ action: 'admin.client.search', token: admin, query: '900000001' }).data.clients[0];
@@ -849,20 +849,47 @@ describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
     expect(found.lastActive).not.toBe('');
   });
 
-  it('tanlov: faqat faol biletlar, bir oyda bir marta, tanlanganlarga xabar', () => {
+  it('super o\'yin ishtirokchilari qo\'lda kiritiladi, mijozlarga telefonsiz ko\'rinadi', () => {
     const { env, admin } = setup();
-    const res = env.api({ action: 'admin.draw.run', token: admin, options: { count: 30, notify: true } }).data;
-    // Faol biletlar faqat Alisherda (3 ta); Botir qarzdor, Sardorda bilet yo'q
-    expect(res.poolSize).toBe(3);
-    expect(res.winners).toHaveLength(3);
-    expect(new Set(res.winners.map((w: any) => w.ticket)).size).toBe(3);
-    expect(res.winners.every((w: any) => w.name === 'Alisher Usta')).toBe(true);
-    expect(res.notified).toBe(1);
-    expect(env.sent.find((m) => m.url.endsWith('/sendMessage'))!.payload.text).toContain('jonli shouga tanlandi');
+    const user = env.login(222, '+998910000002');
+    env.sent.length = 0;
+    expect(env.api({ action: 'admin.show.save', token: admin, month: '2025-01', participants: [] }).error.message).toContain('Oy');
+    expect(env.api({ action: 'admin.show.save', token: admin, month: '2026-10', participants: [{ name: 'X' }] }).error.message).toContain('chipta kodi');
 
-    expect(env.api({ action: 'admin.draw.run', token: admin }).error.message).toContain('allaqachon');
-    expect(env.api({ action: 'admin.draw.run', token: admin, options: { force: true, count: 2 } }).data.winners).toHaveLength(2);
-    expect(env.api({ action: 'admin.draw.get', token: admin }).data.winners).toHaveLength(2);
+    const res = env.api({
+      action: 'admin.show.save', token: admin, month: '2026-10', notify: true,
+      participants: [
+        { name: 'Botir aka', phone: '(91) 000-00-02', code: 'q265p2', count: 2 },
+        { name: 'Nurillo aka', phone: '943-7578', region: '05 Samarqand', code: '2476NC', count: 1 },
+      ],
+    }).data;
+    expect(res.participants).toHaveLength(2);
+    expect(res.participants[0]).toMatchObject({ n: 1, code: 'Q265P2', name: 'Botir aka', region: '03 Andijon', count: 2 });
+    expect(res.notified).toBe(1); // Botir botga ulangan (login)
+
+    const pub = env.api({ action: 'bootstrap', token: user }).data.show;
+    expect(pub[0]).toMatchObject({ month: '2026-10', monthName: 'Oktyabr 2026', tickets: 3 });
+    expect(pub[0].participants[0]).toMatchObject({ name: 'Botir aka', isMe: true });
+    expect(JSON.stringify(pub)).not.toContain('000-00-02');
+
+    // Qayta saqlash ro'yxatni almashtiradi; tabrik faqat yangi qo'shilganlarga
+    env.sent.length = 0;
+    const again = env.api({
+      action: 'admin.show.save', token: admin, month: '2026-10', notify: true,
+      participants: [...res.participants, { name: 'Alisher aka', phone: '+998900000001', code: '9TJLZZ', count: 1 }],
+    }).data;
+    expect(again.participants).toHaveLength(3);
+    expect(again.notified).toBe(1);
+    const sent = env.sent.filter((m) => m.url.endsWith('/sendMessage'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload.text).toContain('9TJLZZ');
+    expect(env.api({ action: 'admin.show.get', token: admin, month: '2026-10' }).data.participants).toHaveLength(3);
+    expect(env.api({ action: 'admin.overview', token: admin }).data.promoMonths.map((m: any) => m.key)).toEqual(['2026-10', '2026-11', '2026-12']);
+
+    // G'olib ishtirokchidan chipta kodi bilan qo'shiladi
+    const w = env.api({ action: 'admin.winner.add', token: admin, winner: { phone: '+998910000002', name: 'Botir aka', prize: 'Chevrolet DAMAS', month: 'Oktyabr 2026', ticketCode: 'q265p2' } }).data;
+    expect(w.winners[0]).toMatchObject({ winnerName: 'Botir aka', prize: 'Chevrolet DAMAS', ticketCode: 'Q265P2' });
+    expect(env.api({ action: 'winners' }).data.show[0].participants).toHaveLength(3);
   });
 
   it('rejalashtirilgan xabar vaqti kelganda yuboriladi, bekor qilingani yuborilmaydi', () => {

@@ -7,7 +7,8 @@ import {
   DEMO_STATS,
   DEMO_LEADERBOARD,
   DEMO_TICKETS,
-  DEMO_WINNERS
+  DEMO_WINNERS,
+  DEMO_SHOW
 } from './demoData';
 
 /**
@@ -36,6 +37,7 @@ class DataService {
           },
           tickets: DEMO_TICKETS,
           winners: DEMO_WINNERS,
+          show: DEMO_SHOW,
         },
       };
     }

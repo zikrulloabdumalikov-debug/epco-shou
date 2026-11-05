@@ -5,7 +5,8 @@ import {
   Product,
   LeaderboardEntry,
   Ticket,
-  PastWinner
+  PastWinner,
+  ShowMonth
 } from '../types';
 
 export const isDemoMode = (): boolean => {
@@ -218,4 +219,27 @@ export const DEMO_CATALOG: Product[] = [
   }
 ];
 
-export const DEMO_WINNERS: PastWinner[] = [];
+export const DEMO_WINNERS: PastWinner[] = [
+  { id: "w1", month: "Oktyabr 2026", winnerName: "Hamid aka", region: "12 Xorazm", prize: "Chevrolet DAMAS", ticketsHeld: 3, ticketCode: "4MRB5A", videoUrl: "https://youtube.com" },
+  { id: "w2", month: "Oktyabr 2026", winnerName: "Nabi aka", region: "05 Samarqand", prize: "Televizor", ticketsHeld: 2, ticketCode: "4L5N88" },
+  { id: "w3", month: "Oktyabr 2026", winnerName: "Siroj aka", region: "10 Qashqadaryo", prize: "Muzlatgich", ticketsHeld: 1, ticketCode: "NPVSPN" },
+];
+
+const demoNames: [string, string, string, number][] = [
+  ["Abdurauf aka", "01 Tashkent", "9TJLZZ", 1],
+  ["Madyor aka", "02 Qoqon", "Q265P2", 1],
+  ["Demo Usta 1", "01 Toshkent", "EHBLPD", 1],
+  ["Amin aka", "05 Samarqand", "KELZTQ", 3],
+  ["Nabi aka", "05 Samarqand", "4L5N88", 2],
+  ["Siroj aka", "10 Qashqadaryo", "NPVSPN", 1],
+  ["Hamid aka", "12 Xorazm", "4MRB5A", 3],
+];
+
+export const DEMO_SHOW: ShowMonth[] = [
+  {
+    month: "2026-10",
+    monthName: "Oktyabr 2026",
+    tickets: demoNames.reduce((a, r) => a + r[3], 0),
+    participants: demoNames.map(([name, region, code, count], i) => ({ n: i + 1, name, region, code, count, isMe: name === "Demo Usta 1" })),
+  },
+];
