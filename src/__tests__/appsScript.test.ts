@@ -75,6 +75,10 @@ class GridSheet {
       return range;
     };
     range.setValue = (v: any) => (this.set(r, c, v), range);
+    range.clearContent = () => {
+      for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) this.set(r + i, c + j, '');
+      return range;
+    };
     range.setFormula = (f: string) => (this.set(r, c, f), range);
     range.getValue = () => this.cell(r, c);
     range.getValues = () =>
@@ -890,6 +894,51 @@ describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
     const w = env.api({ action: 'admin.winner.add', token: admin, winner: { phone: '+998910000002', name: 'Botir aka', prize: 'Chevrolet DAMAS', month: 'Oktyabr 2026', ticketCode: 'q265p2' } }).data;
     expect(w.winners[0]).toMatchObject({ winnerName: 'Botir aka', prize: 'Chevrolet DAMAS', ticketCode: 'Q265P2' });
     expect(env.api({ action: 'winners' }).data.show[0].participants).toHaveLength(3);
+  });
+
+  it('Excel\'dan "Tanlov" varag\'iga to\'g\'ridan-to\'g\'ri qo\'yilgan ro\'yxat ilovada chiqadi', () => {
+    const { env, admin } = setup();
+    const user = env.login(222, '+998910000002');
+    env.api({ action: 'admin.show.save', token: admin, month: '2026-11', participants: [] }); // varaq yaratiladi
+    const sheet = env.sheets['Tanlov'];
+    expect(sheet.getRange(1, 1, 1, 8).getValues()[0]).toEqual(['Регион', 'Агент', 'Клиент', 'Имя участника', 'Тел. Клиента', 'Уникальный код', 'Кол-во билетов', 'Oy']);
+
+    // Oy faqat birinchi qatorda; "Kol-vo" bo'sh bo'lsa 1 ta
+    sheet.getRange(2, 1, 3, 8).setValues([
+      ['01 Tashkent', 'UZB-1-DIL', 'Abdurouf Aka Avtozapchas', 'Abdurauf aka', '(99) 854-41-95', '9tjlzz', 1, 'Oktyabr'],
+      ['03 Andijon', 'UZB-3-ABD', 'Botir Moyxona', 'Botir aka', '(91) 000-00-02', 'Q265P2', 3, ''],
+      ['05 Samarqand', 'UZB-5-MXR', 'Нурилло ака', '', '943-7578', '2476NC', '', ''],
+    ]);
+    env.ctx.onEdit({ range: { getSheet: () => sheet } });
+
+    const pub = env.api({ action: 'bootstrap', token: user }).data.show;
+    expect(pub).toHaveLength(1);
+    expect(pub[0]).toMatchObject({ month: '2026-10', monthName: 'Oktyabr 2026', tickets: 5 });
+    expect(pub[0].participants.map((p: any) => [p.n, p.name, p.code, p.count])).toEqual([
+      [1, 'Abdurauf aka', '9TJLZZ', 1],
+      [2, 'Botir aka', 'Q265P2', 3],
+      [3, 'Нурилло ака', '2476NC', 1],
+    ]);
+    expect(pub[0].participants[1].isMe).toBe(true);
+
+    // Admin paneldan boshqa oyni saqlash Oktyabr qatorlariga tegmaydi
+    env.api({ action: 'admin.show.save', token: admin, month: '2026-11', participants: [{ name: 'Alisher aka', phone: '+998900000001', code: 'NOV001', count: 2 }] });
+    const both = env.api({ action: 'winners' }).data.show;
+    expect(both.map((m: any) => [m.month, m.participants.length])).toEqual([['2026-11', 1], ['2026-10', 3]]);
+    expect(env.api({ action: 'admin.show.get', token: admin, month: '2026-10' }).data.participants).toHaveLength(3);
+  });
+
+  it('eski tartibdagi "Tanlov" varag\'i yangi ustunlarga o\'tkaziladi', () => {
+    const { env, admin } = setup();
+    const old = new GridSheet('Tanlov');
+    old.getRange(1, 1, 2, 9).setValues([
+      ['Oy', '№', 'Chipta kodi', 'Ism', 'Telefon', 'Hudud', 'Agent', "Qo'shilgan", 'Chipta soni'],
+      ['2026-10', 1, 'AAA111', 'Botir aka', '(91) 000-00-02', '03 Andijon', 'AG-2', '', 2],
+    ]);
+    env.sheets['Tanlov'] = old;
+    const list = env.api({ action: 'admin.show.get', token: admin, month: '2026-10' }).data.participants;
+    expect(list).toEqual([{ n: 1, code: 'AAA111', name: 'Botir aka', phone: '(91) 000-00-02', region: '03 Andijon', agent: 'AG-2', count: 2 }]);
+    expect(old.getRange(1, 1).getValue()).toBe('Регион');
   });
 
   it('rejalashtirilgan xabar vaqti kelganda yuboriladi, bekor qilingani yuborilmaydi', () => {

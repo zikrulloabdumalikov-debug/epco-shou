@@ -66,6 +66,7 @@ interface ShowParticipant {
   region: string;
   agent: string;
   count: number;
+  client?: string;
 }
 
 interface ClientCard {
@@ -145,7 +146,7 @@ function parsePasted(raw: string) {
     }
     const count = parseInt(c[6], 10);
     if (!count || !c[5]) return; // sarlavha qatori
-    rows.push({ region: c[0], agent: c[1], name: c[3] || c[2], phone: c[4], code: c[5].toUpperCase(), count });
+    rows.push({ region: c[0], agent: c[1], client: c[2], name: c[3] || c[2], phone: c[4], code: c[5].toUpperCase(), count });
   });
   return { rows, errors };
 }
@@ -710,6 +711,10 @@ export const AdminPanel: React.FC<{ currentMonth: string }> = ({ currentMonth })
             <p className="text-sm text-muted leading-relaxed">
               Excel/Sheets'dagi qatorlarni belgilab nusxa oling (Ctrl+C) va shu yerga qo'ying. Ustunlar tartibi: Hudud · Agent · Mijoz · Ishtirokchi ismi · Telefon ·
               Chipta kodi · Chipta soni. Sarlavha qatori o'zi tashlab ketiladi.
+            </p>
+            <p className="text-xs text-muted leading-relaxed">
+              Yoki to'g'ridan-to'g'ri Google Sheets'dagi «Tanlov» varag'iga qo'ying (ustunlar xuddi shunday), H ustuni «Oy» ga oyning birinchi qatoriga
+              «Oktyabr» deb yozing — ilovada 5 daqiqa ichida chiqadi.
             </p>
             <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={4} placeholder="Shu yerga qo'ying..." className="field font-mono text-xs" />
             {paste.trim() && (

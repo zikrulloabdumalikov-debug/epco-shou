@@ -410,6 +410,7 @@ function refreshMastersCache() {
 function onEdit(e) {
   try {
     var name = e && e.range ? e.range.getSheet().getName() : "";
+    if (name === DRAW_SHEET) CacheService.getScriptCache().remove(SHOW_CACHE_KEY);
     if ([ACTIVITY_SHEET, LEADS_SHEET, WINNERS_SHEET, BROADCAST_SHEET, POLL_SHEET, TEAM_SHEET, DRAW_SHEET].indexOf(name) !== -1 || name.indexOf("Arxiv") === 0) return;
     CacheService.getScriptCache().remove(MASTERS_CACHE_KEY + "_n");
   } catch (err) {}
@@ -1405,7 +1406,7 @@ function handlePollAnswer(answer) {
 var TEAM_SHEET = "Jamoa";
 var TEAM_HEADERS = ["Telefon", "Ism", "Rol", "Agent kodi", "Qo'shilgan"];
 var DRAW_SHEET = "Tanlov";
-var DRAW_HEADERS = ["Oy", "№", "Chipta kodi", "Ism", "Telefon", "Hudud", "Agent", "Qo'shilgan", "Chipta soni"];
+var DRAW_HEADERS = ["Регион", "Агент", "Клиент", "Имя участника", "Тел. Клиента", "Уникальный код", "Кол-во билетов", "Oy"];
 var TEMPLATES_KEY = "tpl_list";
 var TEAM_CACHE_KEY = "team_v1";
 // Agent faqat shu amallarni bajara oladi va faqat o'z mijozlarini ko'radi
@@ -1638,37 +1639,118 @@ function defaultShowMonth() {
   return current;
 }
 
-function readShow(monthKey) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DRAW_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, DRAW_HEADERS.length).getValues()
-    .filter(function(r) { return String(r[0]) === monthKey && String(r[3]).trim() !== ""; })
-    .map(function(r) {
-      return {
-        n: Number(r[1]) || 0,
-        code: String(r[2]),
-        name: String(r[3]),
-        phone: String(r[4]),
-        region: String(r[5]),
-        agent: String(r[6]),
-        count: Math.max(1, Number(r[8]) || 1)
-      };
-    })
-    .sort(function(a, b) { return a.n - b.n; });
+/**
+ * "Tanlov" varag'i ustunlari Excel'dagi ro'yxat bilan bir xil — qatorlarni to'g'ridan-to'g'ri
+ * nusxa olib qo'yish mumkin. "Oy" ni faqat oyning birinchi qatoriga yozish kifoya:
+ * bo'sh qatorlar yuqoridagi oyga tegishli hisoblanadi.
+ */
+var SHOW_COL = { REGION: 0, AGENT: 1, CLIENT: 2, NAME: 3, PHONE: 4, CODE: 5, COUNT: 6, MONTH: 7 };
+var SHOW_CACHE_KEY = "show_v2";
+var MONTHS_RU_LOWER = ["январ", "феврал", "март", "апрел", "май", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
+
+/** "2026-10", "Oktyabr 2026", "oktyabr", "Октябрь", 10 yoki sana -> "2026-10" (aksiya oylaridan biri) */
+function parseShowMonth(value) {
+  var months = promoMonths();
+  if (value instanceof Date) return Utilities.formatDate(value, DEFAULTS.TIMEZONE, "yyyy-MM");
+  var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+  if (!s) return "";
+  var iso = s.match(/^(\d{4})[-.\/](\d{1,2})$/);
+  if (iso) return iso[1] + "-" + ("0" + iso[2]).slice(-2);
+  var month = 0;
+  if (/^\d{1,2}$/.test(s)) month = Number(s);
+  for (var i = 0; i < 12 && !month; i++) {
+    if (s.indexOf(MONTHS_UZ[i].toLowerCase().slice(0, 4)) === 0 || s.indexOf(MONTHS_RU_LOWER[i]) === 0) month = i + 1;
+  }
+  if (!month) return "";
+  var year = (s.match(/(20\d\d)/) || [])[1];
+  if (year) return year + "-" + ("0" + month).slice(-2);
+  for (var k = 0; k < months.length; k++) {
+    if (Number(months[k].key.slice(5)) === month) return months[k].key;
+  }
+  return "";
 }
 
-/** Mijozlar ko'radigan ro'yxat: telefonlarsiz, eng so'nggi oy birinchi */
-function readShowPublic(myPhoneKey) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DRAW_SHEET);
+/** Eski tartibdagi (Oy, №, Chipta kodi, ...) bo'sh varaqni yangi sarlavhalarga o'tkazadi */
+function getShowSheet(create) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(DRAW_SHEET);
+  if (sheet && String(sheet.getRange(1, 1).getValue()) === "Oy") {
+    if (sheet.getLastRow() >= 2) {
+      var old = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+      sheet.getRange(2, 1, old.length, 9).clearContent();
+      sheet.getRange(2, 1, old.length, DRAW_HEADERS.length).setValues(old.map(function(r) {
+        return [r[5], r[6], "", r[3], r[4], r[2], Number(r[8]) || 1, r[0]];
+      }));
+    }
+    sheet.getRange(1, 1, 1, 9).clearContent();
+    sheet.getRange(1, 1, 1, DRAW_HEADERS.length).setValues([DRAW_HEADERS]);
+    sheet.getRange("E:F").setNumberFormat("@");
+    sheet.getRange("H:H").setNumberFormat("@");
+  }
+  if (!sheet && create) sheet = getOrCreateSheet(DRAW_SHEET, DRAW_HEADERS, ["E", "F", "H"]);
+  return sheet;
+}
+
+/** Varaqdagi barcha qatorlar: [{ row, month, n, code, name, client, phone, region, agent, count }] */
+function readShowRows() {
+  var sheet = getShowSheet(false);
   if (!sheet || sheet.getLastRow() < 2) return [];
+  var month = "";
+  var counters = {};
+  var list = [];
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, DRAW_HEADERS.length).getValues().forEach(function(r, i) {
+    var m = parseShowMonth(r[SHOW_COL.MONTH]);
+    if (m) month = m;
+    var code = String(r[SHOW_COL.CODE]).trim().toUpperCase();
+    var name = String(r[SHOW_COL.NAME] || r[SHOW_COL.CLIENT]).trim();
+    if (!month || !code || !name) return;
+    counters[month] = (counters[month] || 0) + 1;
+    list.push({
+      row: i + 2,
+      month: month,
+      n: counters[month],
+      code: code,
+      name: name,
+      client: String(r[SHOW_COL.CLIENT]).trim(),
+      phone: String(r[SHOW_COL.PHONE]).trim(),
+      region: String(r[SHOW_COL.REGION]).trim(),
+      agent: String(r[SHOW_COL.AGENT]).trim(),
+      count: Math.max(1, Math.floor(Number(r[SHOW_COL.COUNT]) || 1))
+    });
+  });
+  return list;
+}
+
+function readShow(monthKey) {
+  return readShowRows().filter(function(p) { return p.month === monthKey; }).map(function(p) {
+    return { n: p.n, code: p.code, name: p.name, phone: p.phone, region: p.region, agent: p.agent, count: p.count };
+  });
+}
+
+/** Mijozlar ko'radigan ro'yxat: telefonlarsiz, eng so'nggi oy birinchi. 5 daqiqa keshlanadi. */
+function readShowPublic(myPhoneKey) {
+  var cache = CacheService.getScriptCache();
+  var rows = null;
+  var cached = cache.get(SHOW_CACHE_KEY);
+  if (cached) {
+    try {
+      rows = JSON.parse(cached);
+    } catch (e) {}
+  }
+  if (!rows) {
+    rows = readShowRows().map(function(p) { return [p.month, p.n, p.name, p.region, p.code, p.count, normalizePhoneKey(p.phone) || ""]; });
+    try {
+      cache.put(SHOW_CACHE_KEY, JSON.stringify(rows), 300);
+    } catch (e) {}
+  }
   return promoMonths().reverse().map(function(m) {
-    var list = readShow(m.key);
+    var list = rows.filter(function(r) { return r[0] === m.key; });
     return {
       month: m.key,
       monthName: m.name,
-      tickets: list.reduce(function(sum, p) { return sum + p.count; }, 0),
-      participants: list.map(function(p) {
-        return { n: p.n, name: p.name, region: p.region, code: p.code, count: p.count, isMe: Boolean(myPhoneKey) && normalizePhoneKey(p.phone) === myPhoneKey };
+      tickets: list.reduce(function(sum, r) { return sum + r[5]; }, 0),
+      participants: list.map(function(r) {
+        return { n: r[1], name: r[2], region: r[3], code: r[4], count: r[5], isMe: Boolean(myPhoneKey) && r[6] === myPhoneKey };
       })
     };
   }).filter(function(m) { return m.participants.length > 0; });
@@ -1697,6 +1779,7 @@ function adminShowSave(data) {
       phoneKey: phoneKey,
       code: code,
       name: name,
+      client: String(p.client || (master && master.name) || "").trim(),
       phone: phoneKey ? formatPhoneUz(phoneKey) : String(p.phone || "").trim(),
       region: String(p.region || (master && master.region) || "").trim(),
       agent: String(p.agent || (master && master.agent) || "").trim(),
@@ -1704,24 +1787,25 @@ function adminShowSave(data) {
     };
   });
 
+  var sheet = getShowSheet(true);
+  var existing = readShowRows();
   var before = {};
-  readShow(monthKey).forEach(function(p) { before[normalizePhoneKey(p.phone) || p.code] = true; });
+  existing.forEach(function(p) {
+    if (p.month === monthKey) before[normalizePhoneKey(p.phone) || p.code] = true;
+  });
+  // Shu oyning qatorlari pastdan yuqoriga o'chiriladi (qator raqamlari siljimasligi uchun)
+  existing.filter(function(p) { return p.month === monthKey; }).map(function(p) { return p.row; })
+    .sort(function(a, b) { return b - a; })
+    .forEach(function(row) { sheet.deleteRow(row); });
 
-  var sheet = getOrCreateSheet(DRAW_SHEET, DRAW_HEADERS, ["A", "C", "E"]);
-  if (sheet.getLastRow() >= 2) {
-    var months = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
-    for (var d = months.length - 1; d >= 0; d--) {
-      if (String(months[d][0]) === monthKey) sheet.deleteRow(d + 2);
-    }
-  }
-  var now = new Date();
   if (list.length) {
-    var rows = list.map(function(p, idx) {
-      return [monthKey, idx + 1, sheetText(p.code, 30), sheetText(p.name, 100), sheetText(p.phone, 30),
-        sheetText(p.region, 60), sheetText(p.agent, 40), now, p.count];
+    var rows = list.map(function(p) {
+      return [sheetText(p.region, 60), sheetText(p.agent, 40), sheetText(p.client, 100), sheetText(p.name, 100),
+        sheetText(p.phone, 30), sheetText(p.code, 30), p.count, monthKey];
     });
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, DRAW_HEADERS.length).setValues(rows);
   }
+  CacheService.getScriptCache().remove(SHOW_CACHE_KEY);
 
   var notified = 0;
   if (data.notify) {
