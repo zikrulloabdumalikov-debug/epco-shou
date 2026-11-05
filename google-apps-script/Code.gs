@@ -20,9 +20,9 @@ var TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 // 1. STANDART SOZLAMALAR VA KONSTANTALAR
 // ═══════════════════════════════════════════════════════════════════════════
 var DEFAULTS = {
-  DEBT_TOLERANCE: 0,               // Qarz shu summadan oshmasa "qarzsiz"
+  DEBT_TOLERANCE: 5,               // Qarz 5 gacha bo'lsa "qarzsiz" (5.01 — qarzdor). Mijozlarga aytilmaydi: "qarzni 0 qiling"
   DEBTORS_IN_RANKING: true,        // Qarzdorlar reytingda ko'rinadimi
-  TICKET_PRICE: 1000,              // Har 1 000 to'lov = 1 bilet
+  TICKET_PRICE: 500,               // Noyabr 2026 dan: har 500 to'lov = 1 bilet
   SHOW_WINNERS_K: 30,              // Jonli shouga 30 ta bilet tasodifiy tanlanadi
   TIMEZONE: "Asia/Tashkent",       // Server vaqt mintaqasi
   SUPPORT_PHONE: "+998 90 556 90 60",
@@ -515,6 +515,7 @@ function buildPromoConfig(dataObj, config) {
 
   return {
     totalShowWinners: config.SHOW_WINNERS_K,
+    ticketPrice: config.TICKET_PRICE,
     totalConfirmedTicketsPool: dataObj.totalActiveTickets,
     grandPrize: config.GRAND_PRIZE,
     prizesText: config.PRIZES_TEXT,
@@ -2287,8 +2288,8 @@ function botAnswer(action, phoneKey, lang) {
   if (action === "tickets") {
     if (s.tickets === 0) {
       return { text: botT(lang,
-        "🎟 Hozircha biletingiz yo'q.\nBirinchi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Har 1 000 to'lov = 1 bilet</i>",
-        "🎟 Пока у вас нет билетов.\nДо первого билета: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Каждые 1 000 оплаты = 1 билет</i>") };
+        "🎟 Hozircha biletingiz yo'q.\nBirinchi biletgacha: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Har " + usd(config.TICKET_PRICE) + " to'lov = 1 bilet</i>",
+        "🎟 Пока у вас нет билетов.\nДо первого билета: <b>" + usd(s.gapToNextTicket) + "</b>\n<i>Каждые " + usd(config.TICKET_PRICE) + " оплаты = 1 билет</i>") };
     }
     if (s.isDebtCleared) {
       return { text: botT(lang,

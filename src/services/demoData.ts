@@ -28,6 +28,7 @@ export const DEMO_USER: User = {
 
 export const DEMO_CONFIG: PromoConfig = {
   totalShowWinners: 30,
+  ticketPrice: 500,
   totalConfirmedTicketsPool: 45,
   grandPrize: 'Chevrolet DAMAS',
   prizesText: "Har oy: 15 000$ lik sovg'alar va pul mukofotlari",

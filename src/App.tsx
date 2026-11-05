@@ -438,7 +438,7 @@ export default function App() {
         </div>
       </nav>
 
-      <TicketsModal isOpen={isTicketsOpen} tickets={tickets} stats={stats} onClose={() => setIsTicketsOpen(false)} />
+      <TicketsModal isOpen={isTicketsOpen} tickets={tickets} stats={stats} ticketPrice={config.ticketPrice} onClose={() => setIsTicketsOpen(false)} />
       <RulesAndTrustModal isOpen={isRulesOpen} config={config} onClose={() => setIsRulesOpen(false)} />
       <WinnersWallModal isOpen={isWinnersOpen} winners={winners} show={show} grandPrize={config.grandPrize} onClose={() => setIsWinnersOpen(false)} />
       <ProfileModal

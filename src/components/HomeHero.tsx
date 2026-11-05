@@ -32,7 +32,8 @@ export const HomeHero: React.FC<HomeHeroProps> = ({ name, stats, timeLeft, onOpe
   }, [stats.tickets]);
 
   const remainder = stats.currentMonthRemainder || 0;
-  const progress = Math.min(100, Math.max(3, (remainder / 1000) * 100));
+  const price = remainder + (stats.gapToNextTicket || 0) || 1;
+  const progress = Math.min(100, Math.max(3, (remainder / price) * 100));
   const active = stats.isDebtCleared;
 
   return (
@@ -89,8 +90,8 @@ export const HomeHero: React.FC<HomeHeroProps> = ({ name, stats, timeLeft, onOpe
               {L('Qarz:', 'Долг:')} {money(stats.debtAmount)}
             </div>
             {L(
-              'Qarz yopilishi bilan barcha biletlaringiz darhol faollashadi va shouda qatnashadi.',
-              'Как только долг будет погашен, все билеты сразу станут активными и будут участвовать в шоу.'
+              "Qarzni 0 qiling — barcha biletlaringiz darhol faollashadi va o'yinda qatnashadi.",
+              'Погасите долг до 0 — все билеты сразу станут активными и будут участвовать в розыгрыше.'
             )}
           </div>
         </div>

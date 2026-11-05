@@ -127,15 +127,16 @@ export function simulateAdditionalSpend(
   T: number,
   K: number = 30,
   activeParticipants: number = 10,
-  thresholds?: { rank: number; minAmount: number; label?: string }[]
+  thresholds?: { rank: number; minAmount: number; label?: string }[],
+  ticketPrice: number = 1000
 ) {
   const newConfirmed = currentConfirmed + additionalSpend;
-  const currentTickets = Math.floor(currentConfirmed / 1000);
-  const newTickets = Math.floor(newConfirmed / 1000);
+  const currentTickets = Math.floor(currentConfirmed / ticketPrice);
+  const newTickets = Math.floor(newConfirmed / ticketPrice);
   const ticketDelta = newTickets - currentTickets;
 
-  const remainder = newConfirmed % 1000;
-  const newGapToTicket = remainder === 0 ? 1000 : (1000 - remainder);
+  const remainder = newConfirmed % ticketPrice;
+  const newGapToTicket = remainder === 0 ? ticketPrice : (ticketPrice - remainder);
   const poolT = Math.max(1, (T || 0) + ticketDelta);
   const newMetrics = getProbabilityMetrics(newTickets, poolT, K, activeParticipants);
 

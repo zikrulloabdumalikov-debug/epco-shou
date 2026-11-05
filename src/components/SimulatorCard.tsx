@@ -30,7 +30,8 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({ stats, config }) =
         config?.totalConfirmedTicketsPool || stats.tickets || 10,
         config?.totalShowWinners || 30,
         stats.activeParticipants || 10,
-        config?.thresholds
+        config?.thresholds,
+        config?.ticketPrice || 500
       ),
     [stats, amount, config]
   );
@@ -76,7 +77,7 @@ export const SimulatorCard: React.FC<SimulatorCardProps> = ({ stats, config }) =
 
       {!stats.isDebtCleared && (
         <p className="text-sm text-bad">
-          {L('Eslatma: qarz yopilmaguncha biletlar shouda qatnashmaydi.', 'Важно: пока долг не погашен, билеты не участвуют в шоу.')}
+          {L("Eslatma: qarz yopilmaguncha biletlar o'yinda qatnashmaydi.", 'Важно: пока долг не погашен, билеты не участвуют в розыгрыше.')}
         </p>
       )}
     </div>

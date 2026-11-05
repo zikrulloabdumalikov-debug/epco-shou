@@ -1,7 +1,7 @@
 import React from 'react';
-import { Banknote, ShieldCheck, Shuffle, Gift, Phone, CalendarDays } from 'lucide-react';
+import { Banknote, ShieldCheck, Shuffle, Gift, Phone, CalendarDays, Car } from 'lucide-react';
 import { PromoConfig } from '../types';
-import { useL, useLanguage, MONTHS } from '../i18n/lang';
+import { useL, useLanguage, MONTHS, money } from '../i18n/lang';
 import { Sheet } from './Sheet';
 
 interface RulesAndTrustModalProps {
@@ -14,6 +14,7 @@ export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({ isOpen, 
   const L = useL();
   const language = useLanguage();
   const K = config.totalShowWinners;
+  const price = money(config.ticketPrice || 500);
 
   // Aksiya oylari: boshlanish va tugash sanalari orasidagi oylar (masalan: oktyabr, noyabr, dekabr)
   const months: string[] = [];
@@ -37,32 +38,40 @@ export const RulesAndTrustModal: React.FC<RulesAndTrustModalProps> = ({ isOpen, 
     },
     {
       icon: <Banknote size={20} />,
-      title: L('Har 1 000 to\'lov = 1 bilet', 'Каждые 1 000 оплаты = 1 билет'),
+      title: L(`Har ${price} to'lov = 1 bilet`, `Каждые ${price} оплаты = 1 билет`),
       text: L(
-        'Biletlar va 1 000 dan kam qoldiq har oy boshida nolga tushadi.',
-        'Билеты и остаток меньше 1 000 обнуляются в начале каждого месяца.'
+        `Biletlar va ${price} dan kam qoldiq har oy boshida nolga tushadi.`,
+        `Билеты и остаток меньше ${price} обнуляются в начале каждого месяца.`
       ),
     },
     {
       icon: <ShieldCheck size={20} />,
       title: L('Qarz bo\'lsa — biletlar nofaol', 'Есть долг — билеты неактивны'),
-      text: L('Qarz to\'liq yopilishi bilan barcha biletlar darhol faollashadi.', 'Как только долг погашен, все билеты сразу активируются.'),
+      text: L(
+        'Biletlar o\'yinda qatnashishi uchun qarzingizni 0 qiling. Qarz yopilishi bilan barcha biletlar darhol faollashadi.',
+        'Чтобы билеты участвовали в розыгрыше, погасите долг до 0. Как только долг погашен, все билеты сразу активируются.'
+      ),
+    },
+    {
+      icon: <Car size={20} />,
+      title: L(`Bosh sovrin — ${config.grandPrize}`, `Главный приз — ${config.grandPrize}`),
+      text: L(
+        'Barcha faol bilet egalari orasida o\'ynaladi — biletingiz qancha ko\'p bo\'lsa, imkoniyat shuncha yuqori.',
+        'Разыгрывается среди всех владельцев активных билетов — чем больше билетов, тем выше шанс.'
+      ),
     },
     {
       icon: <Shuffle size={20} />,
-      title: L(`Har oy ${K} ta bilet — jonli shouga`, `Каждый месяц ${K} билетов — на шоу`),
+      title: L(`Super o'yin — ${K} ta chipta`, `Супер-игра — ${K} билетов`),
       text: L(
-        `Reyting bo'yicha emas: barcha faol biletlar orasidan ${K} tasi tasodifiy tanlanadi.`,
-        `Не по рейтингу: ${K} билетов случайно выбирают среди всех активных.`
+        `Jonli efirda lototron orqali ${K} ta chipta tanlanadi. Qimmatbaho sovg'alar shu chipta egalari orasida o'ynaladi.`,
+        `В прямом эфире лототрон выбирает ${K} билетов. Ценные подарки разыгрываются среди их владельцев.`
       ),
     },
     {
       icon: <Gift size={20} />,
       title: L('Sovg\'alar', 'Призы'),
-      text: L(
-        `Bosh sovg'a — ${config.grandPrize}. ${config.prizesText || ''}`,
-        `Главный приз — ${config.grandPrize}. ${config.prizesTextRu || config.prizesText || ''}`
-      ),
+      text: L(config.prizesText || '', config.prizesTextRu || config.prizesText || ''),
     },
   ];
 

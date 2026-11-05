@@ -19,9 +19,9 @@ const asBuffer = (v: string | number[]) => (typeof v === 'string' ? Buffer.from(
 
 // Ustalar: A Viloyat, B Agent, C Mijoz, D Sana, E Tel, F Status, G Pul kirim, H Qarz, I Bilet
 const ROWS = [
-  ['01 Tashkent', 'AG-1', 'Alisher Usta', '', '+998 (90) 000-00-01', '', 3500, 0, ''],
-  ['03 Andijon', 'AG-2', 'Botir Moyxona', '', '+998 (91) 000-00-02', '', 1200, -150, ''],
-  ['05 Samarqand', 'AG-3', 'Sardor Avto', '', '+998 (93) 000-00-03', '', 800, 0, ''],
+  ['01 Tashkent', 'AG-1', 'Alisher Usta', '', '+998 (90) 000-00-01', '', 1750, 0, ''],
+  ['03 Andijon', 'AG-2', 'Botir Moyxona', '', '+998 (91) 000-00-02', '', 600, -150, ''],
+  ['05 Samarqand', 'AG-3', 'Sardor Avto', '', '+998 (93) 000-00-03', '', 400, 0, ''],
 ];
 
 const FORMAT_METHODS = ['setFontWeight', 'setBackground', 'setFontColor', 'setNumberFormat'];
@@ -417,7 +417,7 @@ describe('Apps Script: reytingda ismlar', () => {
     const env = createEnv();
     const board = env.api({ action: 'leaderboard', scope: 'republic' }).data.entries;
     expect(board.map((e: any) => e.maskedName)).toEqual(['Alisher Usta', 'Botir Moyxona', 'Sardor Avto']);
-    expect(JSON.stringify(board)).not.toMatch(/900000001|3500/);
+    expect(JSON.stringify(board)).not.toMatch(/900000001|1750/);
   });
 });
 
@@ -498,15 +498,15 @@ describe('Apps Script: bootstrap (ilova ochilganda bitta so\'rov)', () => {
     expect(boot.user.region).toBe('01 Tashkent');
 
     const s = boot.stats;
-    // Alisher: $3500, qarzsiz -> 3 bilet; 1-o'rin (3500 > 1200 > 800)
-    expect(s.confirmedAmount).toBe(3500);
+    // Alisher: 1750, qarzsiz -> 3 bilet (500 = 1 bilet); 1-o'rin (1750 > 600 > 400)
+    expect(s.confirmedAmount).toBe(1750);
     expect(s.tickets).toBe(3);
     expect(s.activeTicketsCount).toBe(3);
-    expect(s.gapToNextTicket).toBe(500);
+    expect(s.gapToNextTicket).toBe(250);
     expect(s.currentRank).toBe(1);
     expect(s.totalParticipants).toBe(3);
     expect(s.gapToFirstPlace).toBe(0);
-    // Faol biletlar: Alisher 3 + Sardor 0 (800$) ; Botir qarzdor -> T = 3 <= K -> 100%
+    // Faol biletlar: Alisher 3 + Sardor 0 (400) ; Botir qarzdor -> T = 3 <= K -> 100%
     expect(boot.config.totalConfirmedTicketsPool).toBe(3);
     expect(s.probPercent).toBe(100);
     for (const key of ['daysRemainingInMonth', 'probNextJump', 'probFourMonthStreak', 'gapToTop10', 'activeParticipants']) {
@@ -518,22 +518,22 @@ describe('Apps Script: bootstrap (ilova ochilganda bitta so\'rov)', () => {
 
   it('reytingda "men" belgilanadi, boshqalarning to\'lov summasi yuborilmaydi', () => {
     const env = createEnv();
-    const token = env.login(333, '+998930000003'); // Sardor — 3-o'rin, $800
+    const token = env.login(333, '+998930000003'); // Sardor — 3-o'rin, 400
     const boot = env.api({ action: 'bootstrap', token }).data;
 
     const me = boot.leaderboard.republic.find((e: any) => e.isMe);
     expect(me.rank).toBe(3);
     expect(boot.stats.currentRank).toBe(3);
-    expect(boot.stats.gapToNextRank).toBe(401); // 1200 - 800 + 1
-    expect(boot.stats.gapToFirstPlace).toBe(2701); // 3500 - 800 + 1
+    expect(boot.stats.gapToNextRank).toBe(201); // 600 - 400 + 1
+    expect(boot.stats.gapToFirstPlace).toBe(1351); // 1750 - 400 + 1
     expect(boot.leaderboard.region).toHaveLength(1); // Samarqandda faqat o'zi
     expect(boot.leaderboard.region[0].isMe).toBe(true);
-    expect(JSON.stringify(boot.leaderboard)).not.toMatch(/turnover|paidAmount|3500|1200/);
+    expect(JSON.stringify(boot.leaderboard)).not.toMatch(/turnover|paidAmount|1750|600/);
   });
 
   it('qarzdorning biletlari nofaol', () => {
     const env = createEnv();
-    const token = env.login(222, '+998910000002'); // Botir — $1200, qarz 150
+    const token = env.login(222, '+998910000002'); // Botir — 600, qarz 150
     const boot = env.api({ action: 'bootstrap', token }).data;
     expect(boot.stats.isDebtCleared).toBe(false);
     expect(boot.stats.tickets).toBe(1);
@@ -722,7 +722,7 @@ describe('Apps Script: reytingda qarzdor biletlari', () => {
   it('qarzdorning jami biletlari ko\'rsatiladi, holati "qarzi bor"', () => {
     const env = createEnv();
     const botir = env.api({ action: 'leaderboard' }).data.entries.find((e: any) => e.maskedName === 'Botir Moyxona');
-    expect(botir.tickets).toBe(1); // $1200, qarz 150
+    expect(botir.tickets).toBe(1); // 600, qarz 150
     expect(botir.isDebtCleared).toBe(false);
   });
 });
@@ -744,12 +744,12 @@ describe('Apps Script: botdagi tezkor tugmalar', () => {
 
   it('Biletlarim / O\'rnim / Qancha qoldi to\'g\'ri raqamlar bilan javob beradi', () => {
     const env = createEnv();
-    env.shareContact(333, '+998930000003'); // Sardor: $800, qarzsiz, 3-o'rin
-    expect(press(env, 333, '🎟 Biletlarim')[0].text).toContain('Birinchi biletgacha: <b>200</b>');
+    env.shareContact(333, '+998930000003'); // Sardor: 400, qarzsiz, 3-o'rin
+    expect(press(env, 333, '🎟 Biletlarim')[0].text).toContain('Birinchi biletgacha: <b>100</b>');
 
     const rank = press(env, 333, "🏆 O'rnim")[0].text;
     expect(rank).toContain('Respublikada <b>#3</b> (3 tadan)');
-    expect(rank).toContain("2-o'ringa chiqish uchun yana <b>401</b>");
+    expect(rank).toContain("2-o'ringa chiqish uchun yana <b>201</b>");
     expect(rank).not.toContain('$');
 
     const time = press(env, 333, '/qoldi')[0].text;
@@ -842,7 +842,7 @@ describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
 
     expect(env.api({ action: 'admin.client.search', token: agent, query: 'Alisher' }).data.clients).toHaveLength(0);
     const botir = env.api({ action: 'admin.client.search', token: agent, query: 'botir' }).data.clients[0];
-    expect(botir).toMatchObject({ name: 'Botir Moyxona', paid: 1200, debt: 150, tickets: 1, isDebtCleared: false, linked: false });
+    expect(botir).toMatchObject({ name: 'Botir Moyxona', paid: 600, debt: 150, tickets: 1, isDebtCleared: false, linked: false });
 
     expect(env.api({ action: 'admin.broadcast.create', token: agent, broadcast: { kind: 'text', text: 'x' } }).error.code).toBe('FORBIDDEN');
     expect(env.api({ action: 'admin.show.save', token: agent, month: '2026-10', participants: [] }).error.code).toBe('FORBIDDEN');
@@ -987,5 +987,30 @@ describe('Apps Script: jamoa, qidiruv, tanlov, rejalashtirish', () => {
     env.webhook({ update_id: 503, poll_answer: { poll_id: 'POLL1', user: { id: 111 }, option_ids: [1] } });
     const poll = env.api({ action: 'admin.broadcast.list', token: admin }).data.broadcasts[0].pollResults;
     expect(poll).toEqual({ voters: 2, options: [{ option: 'A', count: 0 }, { option: 'B', count: 2 }] });
+  });
+});
+
+describe('Apps Script: Noyabrdan yangi shartlar', () => {
+  it('har 500 to\'lov = 1 bilet; qarz 5 gacha faol, 5.01 dan nofaol', () => {
+    const extra = [
+      ['07 Buxoro', 'AG-4', 'Qarz Besh', '', '+998 (94) 000-00-05', '', 1000, -5, ''],
+      ['07 Buxoro', 'AG-4', 'Qarz Beshbir', '', '+998 (94) 000-00-06', '', 1000, '-5,01', ''],
+    ];
+    ROWS.push(...extra);
+    try {
+      const env = createEnv();
+      const besh = env.api({ action: 'bootstrap', token: env.login(901, '+998940000005') }).data;
+      expect(besh.config.ticketPrice).toBe(500);
+      expect(besh.stats.tickets).toBe(2);
+      expect(besh.stats.isDebtCleared).toBe(true);
+      expect(besh.stats.activeTicketsCount).toBe(2);
+
+      const beshbir = env.api({ action: 'bootstrap', token: env.login(902, '+998940000006') }).data;
+      expect(beshbir.stats.tickets).toBe(2);
+      expect(beshbir.stats.isDebtCleared).toBe(false);
+      expect(beshbir.stats.activeTicketsCount).toBe(0);
+    } finally {
+      ROWS.splice(ROWS.length - extra.length, extra.length);
+    }
   });
 });

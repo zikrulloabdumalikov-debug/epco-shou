@@ -20,6 +20,7 @@ export interface User {
 
 export interface PromoConfig {
   totalShowWinners: number; // K = 30
+  ticketPrice?: number; // har necha to'lovga 1 bilet (Noyabrdan 500)
   totalConfirmedTicketsPool: number; // T (e.g. 6000)
   totalPrizePoolUsd?: number;
   grandPrize: string; // "Chevrolet DAMAS"
@@ -54,9 +55,9 @@ export interface ClientStats {
   pendingDebtTicketsCount: number; // qarz mavjud bo'lsa kutilayotgan biletlar
   pendingAmount: number; // e.g. 0
   returnedAmount: number;
-  tickets: number; // floor(confirmedAmount / 1000)
-  gapToNextTicket: number; // 1000 - (confirmedAmount % 1000)
-  currentMonthRemainder: number; // confirmedAmount % 1000
+  tickets: number; // floor(confirmedAmount / ticketPrice)
+  gapToNextTicket: number; // ticketPrice - (confirmedAmount % ticketPrice)
+  currentMonthRemainder: number; // confirmedAmount % ticketPrice
   currentRank: number; // e.g. 14
   totalParticipants: number; // e.g. 1240
   activeParticipants: number; // e.g. 850
